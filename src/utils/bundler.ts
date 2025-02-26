@@ -6,7 +6,7 @@ import {
   type GetPaymasterDataParameters,
   type GetPaymasterDataReturnType,
 } from 'viem/account-abstraction';
-import { http, type Client, type Hex, hexToBigInt, type Transport, type Chain, type Address } from 'viem';
+import { http, type Client, type Hex, hexToBigInt, type Transport, type Chain, type Address, type PublicClient } from 'viem';
 import { MONAD_CHAIN, SHBUNDLER_URL, ENTRY_POINT_ADDRESS } from './config';
 
 // Gas price response types
@@ -32,9 +32,9 @@ export interface GasPriceResult {
   slow: GasPrices;
 }
 
-// Custom paymaster client interface
+// Interface for a custom paymaster client
 export interface CustomPaymaster {
-  sponsorUserOperation: (params: { userOperation: GetPaymasterDataParameters }) => Promise<GetPaymasterDataReturnType>;
+  sponsorUserOperation: (params: { userOperation: any }) => Promise<GetPaymasterDataReturnType>;
 }
 
 // Define our custom client type with the additional method
@@ -131,37 +131,64 @@ export function createShBundlerClient(
   return shBundlerClient;
 }
 
+// Function to create a regular bundler client without a paymaster
+export function initBundler(
+  account: SmartAccount, 
+  publicClient: Client
+): ShBundlerClient {
+  console.log('🔄 Creating regular ShBundlerClient');
+  return createShBundlerClient({
+    transport: http(SHBUNDLER_URL),
+    account,
+    client: publicClient,
+    chain: MONAD_CHAIN,
+    entryPoint: {
+      address: ENTRY_POINT_ADDRESS as Address,
+      version: "0.7"
+    }
+  });
+}
+
 // Function to create a bundler with a custom paymaster client
 export function initBundlerWithPaymaster(
   account: SmartAccount, 
   publicClient: Client,
   customPaymaster: CustomPaymaster
 ): ShBundlerClient {
-  return createShBundlerClient({
+  console.log('🚀 Creating ShBundlerClient with paymaster');
+  
+  // Create a configured bundler client with paymaster
+  const bundlerClient = createShBundlerClient({
     transport: http(SHBUNDLER_URL),
     account,
     client: publicClient,
     chain: MONAD_CHAIN,
     entryPoint: {
       address: ENTRY_POINT_ADDRESS as Address,
-      version: "0.7"
+      version: '0.7',
     },
     paymaster: {
-      getPaymasterData: (parameters) => customPaymaster.sponsorUserOperation({ userOperation: parameters }),
-    }
+      getPaymasterData: async (params) => {
+        console.log('📬 Bundler requesting paymaster data', {
+          sender: params.sender,
+          nonce: params.nonce,
+        });
+        
+        try {
+          const result = await customPaymaster.sponsorUserOperation({ userOperation: params });
+          console.log('✅ Paymaster data received:', 
+            result?.paymasterAndData ? 
+            result.paymasterAndData.substring(0, 20) + '...' : 
+            'No paymaster data available');
+          return result;
+        } catch (error) {
+          console.error('❌ Error getting paymaster data:', error);
+          throw error;
+        }
+      },
+    },
   });
-}
 
-// For backward compatibility
-export function initBundler(account: SmartAccount, publicClient: Client): ShBundlerClient {
-  return createShBundlerClient({
-    transport: http(SHBUNDLER_URL),
-    account,
-    client: publicClient,
-    chain: MONAD_CHAIN,
-    entryPoint: {
-      address: ENTRY_POINT_ADDRESS as Address,
-      version: "0.7"
-    }
-  });
+  console.log('📦 Paymaster integration enabled');
+  return bundlerClient;
 }

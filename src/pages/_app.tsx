@@ -7,10 +7,9 @@ export default function App({ Component, pageProps }: AppProps) {
     <PrivyProvider
       appId={process.env.NEXT_PUBLIC_PRIVY_APP_ID || ""}
       config={{
-        embedded: { 
-          ethereum: { 
-            createOnLogin: 'users-without-wallets',
-          }, 
+        loginMethods: ['email', 'wallet'],
+        embeddedWallets: {
+          createOnLogin: 'users-without-wallets',
         },
         appearance: {
           theme: 'light',

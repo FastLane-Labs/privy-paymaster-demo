@@ -3,11 +3,10 @@ import Head from 'next/head';
 import { usePrivy, useWallets, useCreateWallet, Wallet, ConnectedWallet } from '@privy-io/react-auth';
 import { initBundler, type ShBundler } from '@/utils/bundler';
 import { publicClient, ENTRY_POINT_ADDRESS, ADDRESS_HUB, MONAD_CHAIN, RPC_URL, SPONSOR_PRIVATE_KEY } from '@/utils/config';
-import { getUserOperationHash, packPaymasterAndData } from '@/utils/userOp';
 import { paymasterMode, initContract } from '@/utils/contracts';
 import { encodeFunctionData, parseEther, formatEther, type Address, type Hex, WalletClient, createWalletClient, custom, http } from 'viem';
 import { toSafeSmartAccount } from 'permissionless/accounts';
-import { entryPoint07Address, toPackedUserOperation, type UserOperation } from 'viem/account-abstraction';
+import { toPackedUserOperation, type UserOperation } from 'viem/account-abstraction';
 import { createPublicClient } from 'viem';
 
 // Import ABIs
@@ -88,13 +87,13 @@ export default function Home() {
 
   const createSponsorWallet = async () => {
     const sponsorAccount = privateKeyToAccount(SPONSOR_PRIVATE_KEY as Hex);
-    const _sponsorWallet = createWalletClient({
+    const sponsorWallet = createWalletClient({
       account: sponsorAccount,
       chain: MONAD_CHAIN,
       transport: http(RPC_URL),
     });
 
-    return _sponsorWallet;
+    return sponsorWallet;
   }
 
   // Initialize smart account and bundler when embedded wallet is available
@@ -122,7 +121,7 @@ export default function Home() {
               transport: custom(embeddedWalletProvider)
             });
 
-            const account = await toSafeSmartAccount({
+            const smartAccount = await toSafeSmartAccount({
               client: embeddedWalletClient,
               entryPoint: {
                 address: ENTRY_POINT_ADDRESS,
@@ -132,11 +131,11 @@ export default function Home() {
               version: "1.4.1",
             });
             
-            console.log("Smart account created:", account.address);
-            setSmartAccount(account);
+            console.log("Smart account created:", smartAccount.address);
+            setSmartAccount(smartAccount);
             
             // Initialize bundler with smart account
-            const bundlerInstance = initBundler(account as any, publicClient);
+            const bundlerInstance = initBundler(smartAccount as any, publicClient);
             console.log("Bundler initialized");
             setBundler(bundlerInstance);
             
@@ -178,16 +177,26 @@ export default function Home() {
           setLoading(false);
         }
       }
-
+      console.log("SPONSOR_PRIVATE_KEY:", SPONSOR_PRIVATE_KEY);
       if (SPONSOR_PRIVATE_KEY) {
-        const sponsorWallet = await createSponsorWallet();
-        console.log("Sponsor wallet created:", sponsorWallet.account?.address);
-        setSponsorWallet(sponsorWallet);
+        try {
+          console.log("Creating sponsor wallet with private key");
+          const sponsorWallet = await createSponsorWallet();
+          console.log("Sponsor wallet created:", sponsorWallet.account?.address);
+          setSponsorWallet(sponsorWallet);
+        } catch (error) {
+          console.error("Failed to create sponsor wallet:", error);
+          setTxStatus("Failed to create sponsor wallet. Check your SPONSOR_PRIVATE_KEY.");
+        }
+      } else {
+        console.warn("No SPONSOR_PRIVATE_KEY provided. Sponsored transactions will not work.");
+        // Clear any previously set sponsor wallet
+        setSponsorWallet(null);
       }
     }
     
     initializeAccount();
-  }, [embeddedWallet, sponsorWallet]);
+  }, [embeddedWallet, SPONSOR_PRIVATE_KEY]);
 
   // Fetch balances when accounts are available
   useEffect(() => {
@@ -297,8 +306,18 @@ export default function Home() {
 
   // Function to send a transaction using the UserOperation
   async function sendTransaction() {
-    if (!smartAccount || !bundler || !contractAddresses.paymaster) {
-      setTxStatus('Smart account, bundler, or wallet not initialized');
+    if (!smartAccount || !bundler) {
+      setTxStatus('Smart account or bundler not initialized');
+      return;
+    }
+    
+    if (!contractAddresses.paymaster) {
+      setTxStatus('Paymaster address not available. Check network connectivity.');
+      return;
+    }
+    
+    if (!sponsorWallet) {
+      setTxStatus('Sponsor wallet not initialized. Check if SPONSOR_PRIVATE_KEY is provided in your environment variables.');
       return;
     }
     
@@ -312,15 +331,6 @@ export default function Home() {
         paymasterAbi,
         publicClient
       );
-      
-      const sponsorPrivateKey = "0xbc21661bd8e3db0b83eb41ffc388526bb6f61808ca1222c80e409c7375858765";
-      const sponsorAccount = privateKeyToAccount(sponsorPrivateKey as Hex);
-      const sponsorWallet = createWalletClient({
-        account: sponsorAccount,
-        chain: MONAD_CHAIN,
-        transport: http(RPC_URL),
-      })
-
 
       // Create recipient address - if not valid, send to self
       const to = recipient && recipient.startsWith('0x') && recipient.length === 42 
@@ -436,11 +446,20 @@ export default function Home() {
 
   // Function to send a sponsored transaction
   async function sendSponsoredTransaction() {
-    if (!smartAccount || !bundler || !contractAddresses.paymaster) {
-      setSponsoredTxStatus('Smart account, bundler, or paymaster not initialized');
+    if (!smartAccount || !bundler) {
+      setSponsoredTxStatus('Smart account or bundler not initialized');
       return;
     }
     
+    if (!contractAddresses.paymaster) {
+      setSponsoredTxStatus('Paymaster address not available. Check network connectivity.');
+      return;
+    }
+    
+    if (!sponsorWallet) {
+      setSponsoredTxStatus('Sponsor wallet not initialized. Check if SPONSOR_PRIVATE_KEY is provided in your environment variables.');
+      return;
+    }
     
     try {
       setLoading(true);
@@ -1238,12 +1257,16 @@ export default function Home() {
                             <div className="flex flex-wrap gap-2">
                               <button 
                                 onClick={sendTransaction} 
-                                className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
-                                disabled={loading}
+                                className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                                disabled={loading || !sponsorWallet}
+                                title={!sponsorWallet ? "Sponsor wallet not available" : ""}
                               >
                                 Send Transaction
                               </button>
                             </div>
+                            {!sponsorWallet && (
+                              <p className="text-red-500 text-sm">Sponsor wallet not available. SPONSOR_PRIVATE_KEY is missing.</p>
+                            )}
                             {txHash && (
                               <p><strong>UserOp Hash:</strong> <span className="break-all">{txHash}</span></p>
                             )}
@@ -1281,11 +1304,15 @@ export default function Home() {
                             </div>
                             <button 
                               onClick={sendSponsoredTransaction} 
-                              className="px-4 py-2 bg-purple-500 text-white rounded hover:bg-purple-600"
-                              disabled={loading}
+                              className="px-4 py-2 bg-purple-500 text-white rounded hover:bg-purple-600 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                              disabled={loading || !sponsorWallet}
+                              title={!sponsorWallet ? "Sponsor wallet not available" : ""}
                             >
                               Send Sponsored Transaction
                             </button>
+                            {!sponsorWallet && (
+                              <p className="text-red-500 text-sm">Sponsor wallet not available. SPONSOR_PRIVATE_KEY is missing.</p>
+                            )}
                             {sponsoredTxHash && (
                               <p><strong>UserOp Hash:</strong> <span className="break-all">{sponsoredTxHash}</span></p>
                             )}

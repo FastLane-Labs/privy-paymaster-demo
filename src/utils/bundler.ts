@@ -86,14 +86,23 @@ export function createShBundlerClient(
   config: ShBundlerClientConfig
 ): ShBundlerClient {
   // Create standard bundler client first
+  console.log('🚀 Creating ShBundlerClient', config.paymaster ? 'with paymaster' : 'without paymaster');
+  
+  // Define the paymaster configuration safely
+  const paymasterConfig = config.paymaster ? {
+    getPaymasterData: config.paymaster.getPaymasterData,
+  } : undefined;
+  
+  if (paymasterConfig) {
+    console.log('📦 Paymaster integration enabled');
+  }
+  
   const bundlerClient = createBundlerClient({
     transport: config.transport,
     account: config.account,
     client: config.client,
     chain: config.chain || MONAD_CHAIN,
-    paymaster: config.paymaster ? {
-      getPaymasterData: config.paymaster.getPaymasterData,
-    } : undefined,
+    paymaster: paymasterConfig,
   });
   
   // Add our custom methods

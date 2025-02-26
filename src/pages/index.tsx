@@ -44,6 +44,7 @@ export default function Home() {
     sendSponsoredTransaction,
     sendSelfSponsoredTransaction,
     bondMonToShmon,
+    verifyPaymasterConfiguration,
     setTxStatus,
   } = txOperations;
 
@@ -126,22 +127,46 @@ export default function Home() {
   }
 
   async function debugUserOpWithPaymaster() {
-    if (!smartAccount || !bundler || !contractAddresses.paymaster) {
-      setTxStatus('Cannot debug: Smart account, bundler or paymaster not initialized');
+    if (!smartAccount) {
+      setTxStatus('Cannot debug: Smart account not initialized');
       return;
     }
 
     try {
       setLoading(true);
-      setTxStatus('Debugging UserOperation with paymaster validation...');
-
-      // The rest of the debug function is the same as before...
-      // This is shortened to avoid very large code changes
-      setTxStatus('Paymaster validation successful! The UserOperation is valid.');
+      setTxStatus('Verifying paymaster configuration...');
+      
+      // Use our new verification function
+      const configStatus = verifyPaymasterConfiguration();
+      console.log('Paymaster config check result:', configStatus);
+      
+      setTxStatus(`Paymaster configuration check completed. Check console logs for details.`);
+      
+      // If we have a bundler, try a sponsored transaction to test it
+      if (smartAccount && bundler && configStatus.sponsorWallet) {
+        try {
+          setTxStatus('Testing sponsored transaction with minimal value...');
+          // Send a minimal test transaction to self
+          const testResult = await sendSponsoredTransaction(
+            smartAccount.address,  // to self 
+            '0.0000001'           // tiny amount
+          );
+          
+          if (testResult) {
+            setTxStatus(`✅ Sponsored transaction successful! TX: ${testResult}`);
+          } else {
+            setTxStatus(`❌ Sponsored transaction failed. Check console for details.`);
+          }
+        } catch (error) {
+          console.error('Test transaction error:', error);
+          setTxStatus(`❌ Sponsored transaction test error: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+      
+      setLoading(false);
     } catch (error) {
-      console.error('Debug error:', error);
-      setTxStatus(`Debug error: ${error instanceof Error ? error.message : String(error)}`);
-    } finally {
+      console.error('Paymaster debug error:', error);
+      setTxStatus(`Error debugging paymaster: ${error instanceof Error ? error.message : String(error)}`);
       setLoading(false);
     }
   }

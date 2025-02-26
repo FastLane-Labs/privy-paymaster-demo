@@ -122,7 +122,7 @@ The demo includes a utility that converts a Privy embedded wallet to a Viem wall
 
 ```typescript
 // Convert Privy embedded wallet to Viem wallet client
-const viemWallet = createHybridPrivyWallet(privyWallet, rpcUrl);
+const viemWallet = privyWalletToViemWallet(privyWallet, rpcUrl);
 
 // Use it like a regular Viem wallet
 const txHash = await viemWallet.sendTransaction({

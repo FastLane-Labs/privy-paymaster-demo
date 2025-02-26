@@ -1,4 +1,4 @@
-import { Hex, Address, encodeFunctionData, keccak256, concat, encodeAbiParameters, parseAbiParameters, toHex } from 'viem';
+import { Hex, Address, keccak256, concat, encodeAbiParameters, parseAbiParameters, toHex } from 'viem';
 
 /**
  * Represents a packed UserOperation according to ERC-4337 standard
@@ -61,62 +61,6 @@ export function packPaymasterAndData(paymaster: Address, paymasterData: Hex): He
 }
 
 /**
- * Convert unpacked UserOperationParams to packed PackedUserOperation
- */
-export function packUserOperation(params: UserOperationParams): PackedUserOperation {
-  return {
-    sender: params.sender,
-    nonce: params.nonce,
-    initCode: params.initCode,
-    callData: params.callData,
-    accountGasLimits: packAccountGasLimits(params.callGasLimit, params.verificationGasLimit),
-    preVerificationGas: params.preVerificationGas,
-    gasFees: packGasFees(params.maxFeePerGas, params.maxPriorityFeePerGas),
-    paymasterAndData: packPaymasterAndData(params.paymaster, params.paymasterData),
-    signature: params.signature
-  };
-}
-
-/**
- * Unpack a PackedUserOperation to UserOperationParams
- */
-export function unpackUserOperation(packedOp: PackedUserOperation): UserOperationParams {
-  // Extract callGasLimit and verificationGasLimit
-  const accountGasLimits = BigInt(packedOp.accountGasLimits);
-  const callGasLimit = accountGasLimits >> 128n;
-  const verificationGasLimit = accountGasLimits & ((1n << 128n) - 1n);
-  
-  // Extract maxFeePerGas and maxPriorityFeePerGas
-  const gasFees = BigInt(packedOp.gasFees);
-  const maxFeePerGas = gasFees >> 128n;
-  const maxPriorityFeePerGas = gasFees & ((1n << 128n) - 1n);
-  
-  // Extract paymaster and paymasterData
-  let paymaster = '0x0000000000000000000000000000000000000000' as Address;
-  let paymasterData = '0x' as Hex;
-  
-  if (packedOp.paymasterAndData !== '0x' && packedOp.paymasterAndData.length >= 42) {
-    paymaster = packedOp.paymasterAndData.substring(0, 42) as Address;
-    paymasterData = ('0x' + packedOp.paymasterAndData.substring(42)) as Hex;
-  }
-  
-  return {
-    sender: packedOp.sender,
-    nonce: packedOp.nonce,
-    initCode: packedOp.initCode,
-    callData: packedOp.callData,
-    callGasLimit,
-    verificationGasLimit,
-    preVerificationGas: packedOp.preVerificationGas,
-    maxFeePerGas,
-    maxPriorityFeePerGas,
-    paymaster,
-    paymasterData,
-    signature: packedOp.signature
-  };
-}
-
-/**
  * Calculate the hash of a UserOperation
  */
 export function getUserOperationHash(userOp: PackedUserOperation, entryPoint: Address, chainId: bigint): Hex {
@@ -162,43 +106,3 @@ export function encodeUserOperationForBundler(userOp: PackedUserOperation): any 
     signature: userOp.signature
   };
 }
-
-/**
- * Helper to create a UserOperation with smart defaults
- */
-export async function createUserOperation({
-  sender,
-  nonce,
-  initCode = '0x' as Hex,
-  callData,
-  callGasLimit,
-  verificationGasLimit,
-  preVerificationGas,
-  maxFeePerGas,
-  maxPriorityFeePerGas,
-  paymaster = '0x0000000000000000000000000000000000000000' as Address,
-  paymasterData = '0x' as Hex,
-  signature = '0x' as Hex,
-}: Partial<UserOperationParams> & { 
-  sender: Address;
-  nonce: bigint;
-  callData: Hex;
-}): Promise<PackedUserOperation> {
-  
-  const userOpParams: UserOperationParams = {
-    sender,
-    nonce,
-    initCode,
-    callData,
-    callGasLimit: callGasLimit || 100000n,
-    verificationGasLimit: verificationGasLimit || 100000n,
-    preVerificationGas: preVerificationGas || 50000n,
-    maxFeePerGas: maxFeePerGas || 10000000000n,
-    maxPriorityFeePerGas: maxPriorityFeePerGas || 1000000000n,
-    paymaster,
-    paymasterData,
-    signature,
-  };
-  
-  return packUserOperation(userOpParams);
-} 

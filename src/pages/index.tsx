@@ -1,26 +1,41 @@
 import { useState, useEffect } from 'react';
 import Head from 'next/head';
-import { usePrivy, useWallets } from '@privy-io/react-auth';
+import { usePrivy, useWallets, useCreateWallet, Wallet, ConnectedWallet } from '@privy-io/react-auth';
 import { initBundler, type ShBundler } from '@/utils/bundler';
-import { publicClient, ENTRY_POINT_ADDRESS, ADDRESS_HUB, MONAD_CHAIN, RPC_URL } from '@/utils/config';
-import { createUserOperation, packUserOperation, getUserOperationHash, encodeUserOperationForBundler } from '@/utils/userOp';
+import { publicClient, ENTRY_POINT_ADDRESS, ADDRESS_HUB, MONAD_CHAIN, RPC_URL, SPONSOR_PRIVATE_KEY } from '@/utils/config';
+import { getUserOperationHash, packPaymasterAndData } from '@/utils/userOp';
 import { paymasterMode, initContract } from '@/utils/contracts';
-import { privyWalletToViemWallet, createHybridPrivyWallet } from '@/utils/wallet';
-import { encodeFunctionData, parseEther, formatEther, type Address, type Hex, WalletClient, createWalletClient, custom } from 'viem';
+import { encodeFunctionData, parseEther, formatEther, type Address, type Hex, WalletClient, createWalletClient, custom, http } from 'viem';
 import { toSafeSmartAccount } from 'permissionless/accounts';
 import { entryPoint07Address, toPackedUserOperation, type UserOperation } from 'viem/account-abstraction';
+import { createPublicClient } from 'viem';
 
 // Import ABIs
 import addressHubAbi from '@/abis/addressHub.json';
 import paymasterAbi from '@/abis/paymaster.json';
 import shmonadAbi from '@/abis/shmonad.json';
+import { privateKeyToAccount } from 'viem/accounts';
+
+// Function to adapt the Privy wallet to a compatible wallet for Safe
+function adaptPrivyWallet(privyWallet: any): any {
+  // Create an adapted wallet that includes required properties
+  return {
+    ...privyWallet,
+    account: {
+      address: privyWallet.address,
+      type: 'json-rpc',
+    },
+    getAddresses: async () => [privyWallet.address],
+  };
+}
 
 export default function Home() {
-  const { login, authenticated, ready, user, createWallet } = usePrivy();
+  const { login, authenticated, ready, user } = usePrivy();
+  const { createWallet } = useCreateWallet();
   const { wallets } = useWallets();
-  const [embeddedWallet, setEmbeddedWallet] = useState<any>(null);
-  const [viemWallet, setViemWallet] = useState<WalletClient | null>(null);
+  const [embeddedWallet, setEmbeddedWallet] = useState< ConnectedWallet | null>(null);
   const [smartAccount, setSmartAccount] = useState<any>(null);
+  const [sponsorWallet, setSponsorWallet] = useState<any>(null);
   const [bundler, setBundler] = useState<ShBundler | null>(null);
   const [loading, setLoading] = useState(false);
   const [txHash, setTxHash] = useState('');
@@ -31,8 +46,6 @@ export default function Home() {
   });
   const [recipient, setRecipient] = useState('');
   const [amount, setAmount] = useState('0.001');
-  const [viemTxHash, setViemTxHash] = useState('');
-  const [viemTxStatus, setViemTxStatus] = useState('');
   
   // New state for balances and sponsored transactions
   const [walletBalance, setWalletBalance] = useState<string>('0');
@@ -65,74 +78,65 @@ export default function Home() {
       
       if (embedded) {
         console.log("Found embedded wallet:", embedded.address);
-        setEmbeddedWallet(embedded);
-        
-        try {
-          // Use simplified privyWalletToViemWallet function that handles different wallet types
-          console.log("Creating Viem wallet using privyWalletToViemWallet...");
-          const wallet = privyWalletToViemWallet(embedded);
-          console.log("Viem wallet created successfully with address:", wallet.account?.address);
-          setViemWallet(wallet);
-        } catch (error) {
-          console.error("Error creating Viem wallet:", error);
-        }
+        setEmbeddedWallet(embedded as ConnectedWallet);
       } else {
         console.log("No embedded wallet found. Available wallet types:", wallets.map((w: any) => w.walletClientType).join(', '));
       }
     }
   }, [wallets]);
 
-  // Function to create an embedded wallet
-  const createEmbeddedWallet = async () => {
-    try {
-      console.log("Creating embedded wallet...");
-      if (createWallet) {
-        await createWallet();
-        console.log("Embedded wallet creation initiated");
-      } else {
-        console.error("createWallet function not available");
-      }
-    } catch (error) {
-      console.error("Error creating embedded wallet:", error);
-    }
-  };
+
+  const createSponsorWallet = async () => {
+    const sponsorAccount = privateKeyToAccount(SPONSOR_PRIVATE_KEY as Hex);
+    const _sponsorWallet = createWalletClient({
+      account: sponsorAccount,
+      chain: MONAD_CHAIN,
+      transport: http(RPC_URL),
+    });
+
+    return _sponsorWallet;
+  }
 
   // Initialize smart account and bundler when embedded wallet is available
   useEffect(() => {
     async function initializeAccount() {
-      if (embeddedWallet && viemWallet && publicClient) {
+      if (embeddedWallet) {
         try {
           console.log("Initializing smart account...");
+          // Add detailed logging of the embedded wallet`
           setLoading(true);
           
-          // Make sure we have a proper account
-          if (!viemWallet?.account) {
-            console.error("Viem wallet client or account is undefined");
-            setTxStatus("Error: Failed to create wallet account");
-            setLoading(false);
-            return;
-          }
-          
-          // Create smart account using a simpler approach
-          console.log("Creating smart account for address:", viemWallet.account.address);
-          
           try {
-            // Using the viem wallet account for the smart account
+            // Use the proper approach for Safe smart account with Privy
+            console.log("Creating Safe smart account with Privy wallet...");
+            
+            const embeddedWalletProvider = await embeddedWallet.getEthereumProvider();
+            const embeddedWalletClient = createPublicClient({
+              chain: MONAD_CHAIN,
+              transport: custom(embeddedWalletProvider),
+            });
+
+            // Create a compatible wallet for Safe account creation
+            const walletForSafe = createWalletClient({
+              account: { address: embeddedWallet.address as Address, type: 'json-rpc' },
+              transport: custom(embeddedWalletProvider)
+            });
+
             const account = await toSafeSmartAccount({
-              client: publicClient,
+              client: embeddedWalletClient,
               entryPoint: {
                 address: ENTRY_POINT_ADDRESS,
                 version: "0.7",
               },
-              owners: [viemWallet.account],
+              owners: [walletForSafe],
               version: "1.4.1",
-            } as any);
+            });
             
             console.log("Smart account created:", account.address);
             setSmartAccount(account);
             
             // Initialize bundler with smart account
-            const bundlerInstance = initBundler(account, publicClient);
+            const bundlerInstance = initBundler(account as any, publicClient);
             console.log("Bundler initialized");
             setBundler(bundlerInstance);
             
@@ -159,6 +163,11 @@ export default function Home() {
             }
           } catch (error) {
             console.error("Error creating smart account:", error);
+            console.error("Error details:", error instanceof Error ? {
+              message: error.message,
+              stack: error.stack,
+              name: error.name
+            } : String(error));
             setTxStatus("Error: Failed to create smart account. Check parameters and network.");
           }
           
@@ -169,15 +178,21 @@ export default function Home() {
           setLoading(false);
         }
       }
+
+      if (SPONSOR_PRIVATE_KEY) {
+        const sponsorWallet = await createSponsorWallet();
+        console.log("Sponsor wallet created:", sponsorWallet.account?.address);
+        setSponsorWallet(sponsorWallet);
+      }
     }
     
     initializeAccount();
-  }, [embeddedWallet]);
+  }, [embeddedWallet, sponsorWallet]);
 
   // Fetch balances when accounts are available
   useEffect(() => {
     async function fetchBalances() {
-      if (embeddedWallet && smartAccount && publicClient) {
+      if (embeddedWallet && smartAccount) {
         try {
           console.log("Fetching balances...");
           // Get EOA balance
@@ -204,7 +219,7 @@ export default function Home() {
     const interval = setInterval(fetchBalances, 30000); // refresh every 30 seconds
     
     return () => clearInterval(interval);
-  }, [embeddedWallet, smartAccount, publicClient]);
+  }, [embeddedWallet, smartAccount]);
 
   // Fetch additional data about shmonad bonds and paymaster deposit
   useEffect(() => {
@@ -212,8 +227,6 @@ export default function Home() {
       if (embeddedWallet && smartAccount && publicClient && contractAddresses.paymaster && contractAddresses.shmonad) {
         try {
           // Initialize shmonad and paymaster contracts
-          console.log("Fetching shmonad and paymaster data...");
-          
           const paymasterContract = await initContract(
             contractAddresses.paymaster,
             paymasterAbi,
@@ -231,22 +244,18 @@ export default function Home() {
           // Get policy ID from paymaster
           try {
             const policyId = await paymasterContract.read.POLICY_ID([]) as bigint;
-            console.log("Paymaster policy ID:", policyId.toString());
             
             // Get paymaster deposit
             try {
               const deposit = await paymasterContract.read.getDeposit([]) as bigint;
               setPaymasterDeposit(formatEther(deposit));
-              console.log("Paymaster deposit:", formatEther(deposit));
             } catch (depositError) {
-              console.warn("Error fetching paymaster deposit:", depositError);
+              console.warn("Error fetching paymaster deposit");
               setPaymasterDeposit("Error");
             }
             
-            // Get smart account bonded amount to shmonad - with better error handling
+            // Get smart account bonded amount to shmonad
             try {
-              console.log("Calling balanceOfBonded with policyId:", policyId.toString(), "and account:", smartAccount.address);
-              
               // Check if the function exists before calling
               if (typeof shMonadContract.read.balanceOfBonded !== 'function') {
                 console.warn("balanceOfBonded function not found in contract ABI");
@@ -254,44 +263,41 @@ export default function Home() {
                 return;
               }
               
-              // Add a try-catch specifically for the contract call
+              // Handle expected contract revert for accounts with no bonds
               try {
                 const bondedAmount = await shMonadContract.read.balanceOfBonded([
                   policyId,
                   smartAccount.address
                 ]) as bigint;
                 setBondedShmon(formatEther(bondedAmount));
-                console.log("Smart account shmonad bonded:", formatEther(bondedAmount));
               } catch (contractCallError) {
-                console.warn("Contract call error for balanceOfBonded:", contractCallError);
-                // Check if this is expected behavior (e.g., account not registered yet)
-                console.log("This may be normal for new accounts with no bonded tokens");
+                // This is expected behavior for new accounts - the contract reverts instead of returning 0
                 setBondedShmon("0");
               }
             } catch (bondedError) {
-              console.warn("Error preparing balanceOfBonded call:", bondedError);
-              // Don't update state on error to keep previous value if any
+              // Only log if this is an unexpected error
+              console.warn("Unexpected error checking bonded tokens");
               setBondedShmon("0");
             }
           } catch (policyError) {
-            console.warn("Error fetching policy ID:", policyError);
+            console.warn("Error fetching policy ID");
           }
         } catch (error) {
-          console.error("Error fetching extended data:", error);
+          console.error("Error initializing contracts");
         }
       }
     }
 
     fetchExtendedData();
-    // Set up a refresh interval
-    const interval = setInterval(fetchExtendedData, 30000); // refresh every 30 seconds
+    // Set up a refresh interval with reduced frequency to avoid excessive error logs
+    const interval = setInterval(fetchExtendedData, 60000); // refresh every minute
     
     return () => clearInterval(interval);
-  }, [embeddedWallet, smartAccount, publicClient, contractAddresses]);
+  }, [embeddedWallet, smartAccount, contractAddresses]);
 
   // Function to send a transaction using the UserOperation
   async function sendTransaction() {
-    if (!smartAccount || !bundler || !contractAddresses.paymaster || !viemWallet) {
+    if (!smartAccount || !bundler || !contractAddresses.paymaster) {
       setTxStatus('Smart account, bundler, or wallet not initialized');
       return;
     }
@@ -299,101 +305,124 @@ export default function Home() {
     try {
       setLoading(true);
       setTxStatus('Preparing transaction...');
+            
+      // Initialize paymasterContract
+      const paymasterContract = await initContract(
+        contractAddresses.paymaster,
+        paymasterAbi,
+        publicClient
+      );
       
-      // Create calldata for transfer - using empty data for simple ETH transfer
-      const callData = '0x' as Hex;
-      
-      // Get gas price from bundler
-      const gasPrice = await bundler.getUserOperationGasPrice();
-      setTxStatus('Got gas price...');
-      
-      // Get nonce for the account
-      const nonce = await publicClient.readContract({
-        address: entryPoint07Address,
-        abi: [{
-          name: "getNonce",
-          type: "function",
-          stateMutability: "view",
-          inputs: [
-            { name: "sender", type: "address" },
-            { name: "key", type: "uint192" }
-          ],
-          outputs: [{ type: "uint256" }]
-        }],
-        functionName: "getNonce",
-        args: [smartAccount.address, 0n]
-      });
-      
-      setTxStatus('Creating UserOperation...');
-      
-      // Create the recipient address - if not valid, send to self
+      const sponsorPrivateKey = "0xbc21661bd8e3db0b83eb41ffc388526bb6f61808ca1222c80e409c7375858765";
+      const sponsorAccount = privateKeyToAccount(sponsorPrivateKey as Hex);
+      const sponsorWallet = createWalletClient({
+        account: sponsorAccount,
+        chain: MONAD_CHAIN,
+        transport: http(RPC_URL),
+      })
+
+
+      // Create recipient address - if not valid, send to self
       const to = recipient && recipient.startsWith('0x') && recipient.length === 42 
         ? recipient as Address 
         : smartAccount.address;
       
-      // Create user operation params
-      const userOpParams = {
-        sender: smartAccount.address,
-        nonce,
-        initCode: '0x' as Hex,
-        callData,
-        callGasLimit: 100000n,
-        verificationGasLimit: 100000n,
-        preVerificationGas: 50000n,
-        maxFeePerGas: gasPrice.slow.maxFeePerGas,
-        maxPriorityFeePerGas: gasPrice.slow.maxPriorityFeePerGas,
-        paymaster: contractAddresses.paymaster,
-        paymasterData: paymasterMode("user") as Hex,
-        signature: '0x' as Hex
-      };
-      
-      // Pack the UserOperation
-      const packedUserOp = packUserOperation(userOpParams);
-      
-      // Calculate the UserOperation hash for signing
-      const chainId = BigInt(MONAD_CHAIN.id);
-      const userOpHash = getUserOperationHash(packedUserOp, ENTRY_POINT_ADDRESS, chainId);
-      
-      setTxStatus('Signing UserOperation...');
-      
-      // Use viemWallet for signing instead of embeddedWallet
-      if (!viemWallet.account) {
-        throw new Error("Wallet account is not initialized");
-      }
-      
-      const signature = await viemWallet.signMessage({
-        account: viemWallet.account,
-        message: { raw: userOpHash },
-      }) as Hex;
-      
-      // Update the UserOperation with the signature
-      packedUserOp.signature = signature;
-      
-      setTxStatus('Sending UserOperation...');
-      
-      // Send the UserOperation through bundler
+      // Parse the amount for the transaction
       const parsedAmount = parseEther(amount);
       
-      const userOpHashFromBundler = await bundler.sendUserOperation({
+      // Get gas price from bundler
+      const gasPrice = await bundler.getUserOperationGasPrice();
+      setTxStatus('Got gas price...');
+            
+      // Prepare a basic UserOperation with account and calls, similar to standalone script
+      const userOperation = await bundler.prepareUserOperation({
         account: smartAccount,
-        paymaster: contractAddresses.paymaster,
-        paymasterData: paymasterMode("user") as Hex,
         calls: [
           {
             to: to,
             value: parsedAmount,
-            data: '0x' as Hex,
-          },
+          }
         ],
-        maxFeePerGas: userOpParams.maxFeePerGas,
-        maxPriorityFeePerGas: userOpParams.maxPriorityFeePerGas,
+        maxFeePerGas: gasPrice.slow.maxFeePerGas,
+        maxPriorityFeePerGas: gasPrice.slow.maxPriorityFeePerGas,
       });
       
-      setTxHash(userOpHashFromBundler);
+      // Log the UserOperation before signing
+      console.log("UserOperation before signing:", userOperation);
+      
+      // Set validation times like in standalone script
+      const validAfter = 0n;
+      const validUntil = BigInt(Math.floor(Date.now() / 1000) + 3600); // Valid for 1 hour
+      
+      // Get hash from paymaster contract
+      const hash = await paymasterContract.read.getHash([
+        toPackedUserOperation(userOperation as any),
+        validUntil,
+        validAfter,
+      ]) as Hex;
+      
+      console.log("Hash to sign:", hash);
+
+      if (!sponsorWallet.account) {
+        throw new Error("Sponsor wallet not properly initialized. Check your environment variables.");
+      }
+
+      const sponsorSignature = await sponsorWallet.signMessage({
+        message: { raw: hash as Hex }
+      });
+      console.log("Sponsor signature:", sponsorSignature);
+      // Create paymaster data
+      const paymasterData = paymasterMode(
+        "sponsor",
+        validUntil,
+        validAfter,
+        sponsorSignature,
+        sponsorWallet
+      ) as Hex;
+      
+      // Create a proper UserOp with paymaster data for signing and submission
+      const userOpWithPaymaster = {
+        ...userOperation,
+        paymaster: contractAddresses.paymaster,
+        paymasterData: paymasterData,
+        paymasterVerificationGasLimit: 75000n,
+        paymasterPostOpGasLimit: 120000n,
+      };
+      
+      // Sign the UserOperation with the appropriate method based on account type
+      setTxStatus('Signing UserOperation...');
+      
+      // Check if the account is a Safe account
+      const isSafeAccount = 'owners' in smartAccount;
+      console.log("Is Safe account:", isSafeAccount);
+      
+      const signature = await smartAccount.signUserOperation(userOpWithPaymaster) as Hex;
+      
+      console.log("Generated signature:", signature);
+      
+      // Send the UserOperation with all the required properties
+      const userOpHash = await bundler.sendUserOperation({
+        account: smartAccount,
+        calls: [
+          {
+            to: to,
+            value: parsedAmount,
+          }
+        ],
+        maxFeePerGas: gasPrice.slow.maxFeePerGas,
+        maxPriorityFeePerGas: gasPrice.slow.maxPriorityFeePerGas,
+        paymaster: contractAddresses.paymaster,
+        paymasterData: paymasterData,
+        paymasterVerificationGasLimit: 75000n,
+        paymasterPostOpGasLimit: 120000n,
+        signature: signature
+      });
+      
+      setTxHash(userOpHash);
       setTxStatus('Waiting for transaction confirmation...');
       
       const receipt = await bundler.waitForUserOperationReceipt({
-        hash: userOpHashFromBundler,
+        hash: userOpHash,
       });
       
       setTxStatus('Transaction confirmed!');
@@ -405,74 +434,6 @@ export default function Home() {
     }
   }
 
-  // Function to send a transaction using the Viem wallet client
-  async function sendViemTransaction() {
-    if (!viemWallet || !smartAccount || !bundler || !contractAddresses.paymaster) {
-      setViemTxStatus('Viem wallet and smart account must be initialized');
-      return;
-    }
-    
-    try {
-      setLoading(true);
-      setViemTxStatus('Preparing bundled transaction...');
-      
-      // Check RPC connectivity first
-      try {
-        await publicClient.getChainId();
-      } catch (error) {
-        setViemTxStatus('Error: Cannot connect to RPC endpoint. Check your network connectivity.');
-        setLoading(false);
-        return;
-      }
-      
-      // Create recipient address - if not valid, send to self
-      const to = recipient && recipient.startsWith('0x') && recipient.length === 42 
-        ? recipient as Address 
-        : embeddedWallet.address as Address;
-      
-      // Get gas price from bundler
-      const gasPrice = await bundler.getUserOperationGasPrice();
-      setViemTxStatus('Got gas price from bundler...');
-      
-      // Parse the amount for the transaction
-      const parsedAmount = parseEther(amount);
-      
-      // Instead of using direct eth_sendTransaction, use the bundler
-      setViemTxStatus('Creating and sending UserOperation through bundler...');
-      
-      // Send the operation through the bundler (similar to the main sendTransaction function)
-      const userOpHash = await bundler.sendUserOperation({
-        account: smartAccount,
-        paymaster: contractAddresses.paymaster,
-        paymasterData: paymasterMode("user") as Hex,
-        calls: [
-          {
-            to: to,
-            value: parsedAmount,
-            data: '0x' as Hex,
-          }
-        ],
-        maxFeePerGas: gasPrice.slow.maxFeePerGas,
-        maxPriorityFeePerGas: gasPrice.slow.maxPriorityFeePerGas,
-      });
-      
-      setViemTxHash(userOpHash);
-      setViemTxStatus('Transaction sent through bundler! Waiting for confirmation...');
-      
-      // Wait for the receipt using the bundler
-      const receipt = await bundler.waitForUserOperationReceipt({
-        hash: userOpHash,
-      });
-      
-      setViemTxStatus(`Transaction confirmed! UserOp Hash: ${userOpHash}`);
-      setLoading(false);
-    } catch (error) {
-      console.error("Error sending bundled transaction:", error);
-      setViemTxStatus(`Error: ${error instanceof Error ? error.message : String(error)}`);
-      setLoading(false);
-    }
-  }
-
   // Function to send a sponsored transaction
   async function sendSponsoredTransaction() {
     if (!smartAccount || !bundler || !contractAddresses.paymaster) {
@@ -480,46 +441,76 @@ export default function Home() {
       return;
     }
     
-    if (!viemWallet) {
-      setSponsoredTxStatus('ERROR: Viem wallet not initialized - cannot sign transaction');
-      console.error("viemWallet is null or undefined");
-      return;
-    }
-    
-    // Verify account is available in viemWallet
-    if (!viemWallet.account) {
-      setSponsoredTxStatus('ERROR: Viem wallet account not available - cannot sign transaction');
-      console.error("viemWallet.account is null or undefined");
-      return;
-    }
     
     try {
       setLoading(true);
       setSponsoredTxStatus('Preparing sponsored transaction...');
       
-      // Create recipient address - if not valid, send to self
-      const to = sponsoredRecipient && sponsoredRecipient.startsWith('0x') && sponsoredRecipient.length === 42 
-        ? sponsoredRecipient as Address 
-        : smartAccount.address;
-      
-      setSponsoredTxStatus('Getting gas price...');
-      // Get gas price from bundler
-      const gasPrice = await bundler.getUserOperationGasPrice();
-      
-      // Parse the amount for the transaction
-      const parsedAmount = parseEther(sponsoredAmount);
-      
-      setSponsoredTxStatus('Preparing user operation...');
-      
-      // Initialize paymaster contract
+      // 1. Initialize contracts
+      setSponsoredTxStatus('Initializing contracts...');
       const paymasterContract = await initContract(
         contractAddresses.paymaster,
         paymasterAbi,
         publicClient
       );
       
-      // Create all parameters for UserOperation
-      const userOpParams = {
+      const shMonadContract = await initContract(
+        contractAddresses.shmonad,
+        shmonadAbi,
+        publicClient
+      );
+      
+      // 2. Get policy ID and check balances (similar to standalone script)
+      const policyId = await paymasterContract.read.POLICY_ID([]) as bigint;
+      setSponsoredTxStatus('Checking sponsor bond amounts...');
+      
+      // Check sponsor bonded amount
+      let sponsorBondedAmount;
+      try {
+        sponsorBondedAmount = await shMonadContract.read.balanceOfBonded([
+          policyId,
+          sponsorWallet?.account?.address as Address
+        ]) as bigint;
+        console.log("Sponsor bonded amount:", formatEther(sponsorBondedAmount));
+      } catch (error) {
+        console.log("Sponsor has no bonded tokens");
+        sponsorBondedAmount = 0n;
+      }
+      
+      // Required bond amount (same as in standalone script)
+      const depositAmount = parseEther("2.5"); // 2.5 MON
+      
+      // Check if enough tokens are bonded
+      if (sponsorBondedAmount < depositAmount) {
+        setSponsoredTxStatus(`Not enough bonded tokens. Need ${formatEther(depositAmount)} MON bonded, but only have ${formatEther(sponsorBondedAmount)}. Please bond more tokens first.`);
+        setLoading(false);
+        return;
+      }
+      
+      // Check paymaster deposit
+      const paymasterDeposit = await paymasterContract.read.getDeposit([]) as bigint;
+      setSponsoredTxStatus(`Paymaster has ${formatEther(paymasterDeposit)} MON deposited...`);
+      
+      if (paymasterDeposit < depositAmount) {
+        setSponsoredTxStatus(`Paymaster doesn't have enough deposit. Has ${formatEther(paymasterDeposit)} MON, needs ${formatEther(depositAmount)} MON.`);
+        setLoading(false);
+        return;
+      }
+      
+      // 3. Create recipient address
+      const to = sponsoredRecipient && sponsoredRecipient.startsWith('0x') && sponsoredRecipient.length === 42 
+        ? sponsoredRecipient as Address 
+        : smartAccount.address;
+      
+      // 4. Get gas price and prepare the UserOperation
+      setSponsoredTxStatus('Getting gas price and preparing user operation...');
+      const gasPrice = await bundler.getUserOperationGasPrice();
+      
+      // Parse the amount for the transaction
+      const parsedAmount = parseEther(sponsoredAmount);
+      
+      // 5. Prepare the UserOperation - following standalone script approach
+      const userOperation = await bundler.prepareUserOperation({
         account: smartAccount,
         calls: [
           {
@@ -530,82 +521,77 @@ export default function Home() {
         ],
         maxFeePerGas: gasPrice.slow.maxFeePerGas,
         maxPriorityFeePerGas: gasPrice.slow.maxPriorityFeePerGas,
-      };
+      });
       
-      // Use the bundler to prepare a complete UserOperation
-      const userOp = await bundler.prepareUserOperation(userOpParams);
-      
+      // 6. Set validation times
       setSponsoredTxStatus('Setting validity times and getting hash...');
-      // Set validity times for the transaction
       const validAfter = 0n;
       const validUntil = BigInt(Math.floor(Date.now() / 1000) + 3600); // Valid for 1 hour
       
-      // Get the hash to sign from the paymaster contract
+      // 7. Get hash to sign from paymaster contract - exactly like in standalone script
       const hash = await paymasterContract.read.getHash([
-        toPackedUserOperation(userOp as any),
+        toPackedUserOperation(userOperation as any),
         validUntil,
         validAfter,
       ]) as Hex;
       
-      setSponsoredTxStatus(`Signing hash with viemWallet: ${hash.slice(0, 10)}...`);
-      console.log("About to sign hash:", hash);
-      console.log("Using viemWallet account:", viemWallet.account);
+      setSponsoredTxStatus(`Signing hash with wallet: ${hash.slice(0, 10)}...`);
       
-      try {
-        // Sign the hash with the viem wallet
-        const sponsorSignature = await viemWallet.signMessage({
-          account: viemWallet.account,
-          message: { raw: hash },
-        });
-        
-        console.log("Successfully signed! Signature:", sponsorSignature);
-        setSponsoredTxStatus('Constructing paymaster data with signature...');
-        
-        // Construct the paymasterData with the sponsor signature - fixed format to match contracts.ts
-        // NOTE: Using the correct format from contracts.ts:
-        // For "sponsor" mode, we need: 0x01 + sponsor address + validUntil + validAfter + signature
-        const walletAddress = viemWallet.account.address;
-        console.log("Using wallet address for sponsor:", walletAddress);
-        
-        const paymasterDataRaw = `0x01${walletAddress.slice(2)}${validUntil
-          .toString(16)
-          .padStart(12, "0")}${validAfter
-          .toString(16)
-          .padStart(12, "0")}${(sponsorSignature as Hex).slice(2)}`;
-        
-        console.log("Generated paymasterData:", paymasterDataRaw);
-        
-        setSponsoredTxStatus('Sending sponsored transaction...');
-        // Send the user operation with all parameters
-        const finalUserOpHash = await bundler.sendUserOperation({
-          account: smartAccount,
-          calls: [
-            {
-              to: to,
-              value: parsedAmount,
-              data: '0x' as Hex,
-            }
-          ],
-          maxFeePerGas: gasPrice.slow.maxFeePerGas,
-          maxPriorityFeePerGas: gasPrice.slow.maxPriorityFeePerGas,
-          paymaster: contractAddresses.paymaster,
-          paymasterData: paymasterDataRaw as Hex,
-          paymasterVerificationGasLimit: 75000n,
-          paymasterPostOpGasLimit: 120000n,
-        });
-        
-        setSponsoredTxHash(finalUserOpHash);
-        setSponsoredTxStatus('Waiting for sponsored transaction confirmation...');
-        
-        const finalReceipt = await bundler.waitForUserOperationReceipt({
-          hash: finalUserOpHash,
-        });
-        
-        setSponsoredTxStatus(`Sponsored transaction confirmed! Transaction hash: ${finalReceipt.receipt.transactionHash}`);
-      } catch (signError) {
-        console.error("Error during message signing:", signError);
-        setSponsoredTxStatus(`Signing error: ${signError instanceof Error ? signError.message : String(signError)}`);
+      // 8. Sign the hash with the sponsor's wallet - using sponsorWallet which has correct typing
+      if (!sponsorWallet?.account) {
+        throw new Error("Sponsor wallet not properly initialized. Check your environment variables.");
       }
+      const sponsorSignature = await sponsorWallet.signMessage({
+        message: { raw: hash },
+        account: sponsorWallet.account,
+      });
+      
+      // 9. Create paymaster data using the same helper as standalone script
+      const paymasterData = paymasterMode(
+        "sponsor",
+        validUntil,
+        validAfter,
+        sponsorSignature
+      ) as Hex;
+      
+      // Create a copy of userOperation with the correct paymaster properties
+      const packedUserOp = {
+        ...userOperation,
+        signature: await smartAccount.signUserOperation({
+          ...userOperation,
+          paymaster: contractAddresses.paymaster,
+          paymasterData: paymasterData
+        })
+      };
+      
+      // 12. Send the UserOperation - using same approach as standalone script
+      setSponsoredTxStatus('Sending sponsored transaction...');
+      const userOpHash = await bundler.sendUserOperation({
+        account: smartAccount,
+        calls: [
+          {
+            to: to,
+            value: parsedAmount,
+            data: '0x' as Hex,
+          }
+        ],
+        maxFeePerGas: gasPrice.slow.maxFeePerGas,
+        maxPriorityFeePerGas: gasPrice.slow.maxPriorityFeePerGas,
+        paymaster: contractAddresses.paymaster,
+        paymasterData: paymasterData,
+        paymasterVerificationGasLimit: 75000n,
+        paymasterPostOpGasLimit: 120000n,
+      });
+      
+      setSponsoredTxHash(userOpHash);
+      setSponsoredTxStatus('Waiting for sponsored transaction confirmation...');
+      
+      // 13. Wait for receipt and update UI
+      const finalReceipt = await bundler.waitForUserOperationReceipt({
+        hash: userOpHash,
+      });
+      
+      setSponsoredTxStatus(`Sponsored transaction confirmed! Transaction hash: ${finalReceipt.receipt.transactionHash}`);
     } catch (error) {
       console.error("Error sending sponsored transaction:", error);
       setSponsoredTxStatus(`Error: ${error instanceof Error ? error.message : String(error)}`);
@@ -616,7 +602,7 @@ export default function Home() {
 
   // Function to send a self-sponsored transaction
   async function sendSelfSponsoredTransaction() {
-    if (!viemWallet || !smartAccount || !bundler || !contractAddresses.paymaster || !contractAddresses.shmonad) {
+    if (!smartAccount || !bundler || !contractAddresses.paymaster || !contractAddresses.shmonad) {
       setSelfSponsoredTxStatus('Smart account or bundler not initialized');
       return;
     }
@@ -625,6 +611,7 @@ export default function Home() {
     setSelfSponsoredTxStatus('Preparing self-sponsored transaction...');
     
     try {
+      
       // Initialize contracts
       const paymasterContract = await initContract(
         contractAddresses.paymaster,
@@ -681,65 +668,84 @@ export default function Home() {
       // Get gas price from bundler
       const gasPrice = await bundler.getUserOperationGasPrice();
       
+      // Prepare the UserOperation
+      const userOperation = await bundler.prepareUserOperation({
+        account: smartAccount,
+        calls: [{
+          to: contractAddresses.shmonad,
+          data: encodeFunctionData({
+            abi: shmonadAbi,
+            functionName: 'transfer',
+            args: [to, parsedAmount],
+          }),
+          value: 0n,
+        }],
+        maxFeePerGas: gasPrice.slow.maxFeePerGas,
+        maxPriorityFeePerGas: gasPrice.slow.maxPriorityFeePerGas,
+      });
+      
+      // Set validation times
+      const validAfter = 0n;
+      const validUntil = BigInt(Math.floor(Date.now() / 1000) + 3600); // Valid for 1 hour
+      
+      // Get hash to sign from paymaster contract (following standalone script pattern)
+      const hash = await paymasterContract.read.getHash([
+        toPackedUserOperation(userOperation as any),
+        validUntil,
+        validAfter,
+      ]) as Hex;
+      
+      console.log("Hash to sign for self-sponsored tx:", hash);
+      
       // Send the user operation with "user" paymasterData (self-sponsored)
       const paymasterData = paymasterMode("user") as Hex;
       console.log("Self-sponsored transaction using paymaster data:", paymasterData);
       
-      // Create the transaction calls
-      const calls = [{
-        to: contractAddresses.shmonad,
-        data: encodeFunctionData({
-          abi: shmonadAbi,
-          functionName: 'transfer',
-          args: [to, parsedAmount],
-        }),
-        value: 0n,
-      }];
+      // Sign the UserOperation with proper paymaster data
+      const signature = await smartAccount.signUserOperation({
+        ...userOperation,
+        paymaster: contractAddresses.paymaster,
+        paymasterData: paymasterData
+      });
       
-      // Create the user operation object
-      const selfSponsoredUserOp = {
-        account: smartAccount.address,
-        calls,
-        paymasterData: paymasterData,
-      };
-
-      // Estimate gas for the operation
-      let selfSponsoredOpHash: `0x${string}`;
       try {
-        const estimatedGas = await bundler.estimateUserOperationGas(selfSponsoredUserOp);
-        console.log("Estimated gas for self-sponsored operation:", estimatedGas);
+        setSelfSponsoredTxStatus('Sending self-sponsored transaction...');
         
-        // Send the self-sponsored UserOperation
-        selfSponsoredOpHash = await bundler.sendUserOperation({
-          ...selfSponsoredUserOp,
-          paymasterVerificationGasLimit: estimatedGas.verificationGasLimit || 75000n,
-          paymasterPostOpGasLimit: estimatedGas.paymasterPostOpGasLimit || 120000n,
-          callGasLimit: estimatedGas.callGasLimit || 500000n,
-          verificationGasLimit: estimatedGas.verificationGasLimit || 500000n,
-          preVerificationGas: estimatedGas.preVerificationGas || 50000n,
-        });
-      } catch (gasEstimateError) {
-        console.error("Error estimating gas for self-sponsored tx:", gasEstimateError);
-        // Fallback to default values if estimation fails
-        selfSponsoredOpHash = await bundler.sendUserOperation({
-          ...selfSponsoredUserOp,
+        // Send the self-sponsored UserOperation with proper paymaster data
+        const selfSponsoredOpHash = await bundler.sendUserOperation({
+          account: smartAccount,
+          calls: [{
+            to: contractAddresses.shmonad,
+            data: encodeFunctionData({
+              abi: shmonadAbi,
+              functionName: 'transfer',
+              args: [to, parsedAmount],
+            }),
+            value: 0n,
+          }],
+          maxFeePerGas: gasPrice.slow.maxFeePerGas,
+          maxPriorityFeePerGas: gasPrice.slow.maxPriorityFeePerGas,
+          paymaster: contractAddresses.paymaster,
+          paymasterData: paymasterData,
           paymasterVerificationGasLimit: 75000n,
           paymasterPostOpGasLimit: 120000n,
-          callGasLimit: 500000n,
-          verificationGasLimit: 500000n,
-          preVerificationGas: 50000n,
+          signature: signature
         });
+        
+        setSelfSponsoredTxHash(selfSponsoredOpHash);
+        setSelfSponsoredTxStatus('Waiting for transaction confirmation...');
+        
+        // Wait for the transaction to be included in a block
+        const transactionReceipt = await bundler.waitForUserOperationReceipt({
+          hash: selfSponsoredOpHash,
+        });
+
+        setSelfSponsoredTxStatus(`Self-sponsored transaction confirmed! Transaction hash: ${transactionReceipt.receipt.transactionHash}`);
+      } catch (sendError) {
+        console.error("Error sending self-sponsored tx:", sendError);
+        throw sendError;
       }
       
-      setSelfSponsoredTxHash(selfSponsoredOpHash);
-      setSelfSponsoredTxStatus('Waiting for transaction confirmation...');
-      
-      // Wait for the transaction to be included in a block
-      const transactionReceipt = await bundler.waitForUserOperationReceipt({
-        hash: selfSponsoredOpHash,
-      });
-
-      setSelfSponsoredTxStatus(`Self-sponsored transaction confirmed! Transaction hash: ${transactionReceipt.receipt.transactionHash}`);
       setLoading(false);
       
       // Refresh balances
@@ -758,7 +764,7 @@ export default function Home() {
 
   // Function to bond MON to shMON
   async function bondMonToShmon() {
-    if (!viemWallet || !smartAccount || !contractAddresses.shmonad) {
+    if (!smartAccount || !contractAddresses.shmonad) {
       setTxStatus('Smart account and shmonad contract must be initialized');
       return;
     }
@@ -938,360 +944,427 @@ export default function Home() {
     setLoading(false);
   }
 
+  // Debug function to analyze UserOperation signatures
+  async function debugUserOpSignature() {
+    if (!smartAccount) {
+      console.error("Smart account not initialized");
+      setTxStatus("Cannot debug: Smart account not initialized");
+      return;
+    }
+    
+    try {
+      setLoading(true);
+      setTxStatus("Debugging UserOperation signature...");
+      
+      // Check if embedded wallet is defined
+      if (!embeddedWallet) {
+        setTxStatus("Cannot debug: Embedded wallet is not initialized");
+        setLoading(false);
+        return;
+      }
+      
+      if (!bundler) {
+        setTxStatus("Cannot debug: Bundler not initialized");
+        setLoading(false);
+        return;
+      }
+      
+      // Create a minimal test UserOperation
+      const minTestUserOp = {
+        account: smartAccount,
+        calls: [
+          {
+            to: smartAccount.address, // Send to self for testing
+            value: parseEther("0.0001"), // Minimal value
+            data: '0x' as Hex,
+          }
+        ],
+      };
+      
+      // Prepare the UserOperation using the bundler
+      console.log("Debug - Preparing test UserOperation...");
+      const testUserOp = await bundler.prepareUserOperation(minTestUserOp);
+      
+      console.log("Original UserOperation:", testUserOp);
+      
+      // Check if smartAccount is a Safe account
+      const isSafeAccount = 'owners' in smartAccount;
+      console.log("Is Safe account:", isSafeAccount);
+      
+      try {
+        if (isSafeAccount) {
+          console.log("Using SafeSmartAccount.signUserOperation for signing");
+          
+          // For Safe accounts, use the SafeSmartAccount.signUserOperation method directly
+          // by importing and using the specific function from permissionless/accounts/safe
+          const signature = await smartAccount.signUserOperation(testUserOp);
+          
+          console.log("Successfully signed with Safe account. Signature:", signature);
+          setTxStatus("Successfully signed with Safe account! Check console for signature details.");
+        } else {
+          console.log("Using standard signUserOperation for non-Safe account");
+          // Standard signing for non-Safe accounts
+          const signature = await smartAccount.signUserOperation(testUserOp);
+          console.log("Successfully signed with standard method:", signature);
+          setTxStatus("Successfully signed! Check console for signature details.");
+        }
+      } catch (signError) {
+        console.error("Error signing UserOperation:", signError);
+        setTxStatus(`Signing error: ${signError instanceof Error ? signError.message : String(signError)}`);
+      }
+    } catch (error) {
+      console.error("Debug error:", error);
+      setTxStatus(`Debug error: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Add this new debug function after debugUserOpSignature
+  async function debugUserOpWithPaymaster() {
+    if (!smartAccount || !bundler || !contractAddresses.paymaster) {
+      setTxStatus("Cannot debug: Smart account, bundler or paymaster not initialized");
+      return;
+    }
+    
+    try {
+      setLoading(true);
+      setTxStatus("Debugging UserOperation with paymaster validation...");
+      
+      // Initialize contracts
+      const paymasterContract = await initContract(
+        contractAddresses.paymaster,
+        paymasterAbi,
+        publicClient
+      );
+      
+      // Initialize address hub contract
+      const addressHubContract = await initContract(
+        ADDRESS_HUB,
+        addressHubAbi,
+        publicClient
+      );
+      
+      // Get the paymaster address from the hub to make sure we're using the correct one
+      const paymasterFromHub = await addressHubContract.read.paymaster4337([]) as Address;
+      console.log("Debug - Paymaster address from hub:", paymasterFromHub);
+      console.log("Debug - Paymaster address from contractAddresses:", contractAddresses.paymaster);
+      console.log("Debug - Addresses match:", paymasterFromHub.toLowerCase() === contractAddresses.paymaster.toLowerCase());
+      
+      // Create a minimal test UserOperation
+      const minTestUserOp = {
+        account: smartAccount,
+        calls: [
+          {
+            to: smartAccount.address, // Send to self for testing
+            value: parseEther("0.0001"), // Minimal value
+            data: '0x' as Hex,
+          }
+        ],
+      };
+      
+      // Prepare the UserOperation using the bundler
+      console.log("Debug - Preparing test UserOperation...");
+      const testUserOp = await bundler.prepareUserOperation(minTestUserOp);
+      console.log("Debug - UserOp prepared:", testUserOp);
+      
+      // Set validation times
+      const validAfter = 0n;
+      const validUntil = BigInt(Math.floor(Date.now() / 1000) + 3600); // Valid for 1 hour
+      
+      // Get the hash to sign
+      console.log("Debug - Getting hash to sign from paymaster...");
+      const hash = await paymasterContract.read.getHash([
+        toPackedUserOperation(testUserOp as any),
+        validUntil,
+        validAfter,
+      ]) as Hex;
+      
+      console.log("Debug - Hash to sign:", hash);
+      
+      // Sign the hash with sponsor wallet
+      console.log("Debug - Signing hash with sponsor wallet account:", sponsorWallet?.account?.address);
+      
+      if (!sponsorWallet?.account) {
+        throw new Error("Sponsor wallet not properly initialized. Check your environment variables.");
+      }
+      
+      const sponsorSignature = await sponsorWallet.signMessage({
+        message: { raw: hash },
+        account: sponsorWallet.account,
+      });
+      
+      console.log("Debug - Signature generated:", sponsorSignature);
+      
+      // Create paymaster data with signature
+      const paymasterData = `0x01${sponsorWallet.account.address.slice(2)}${validUntil
+        .toString(16)
+        .padStart(12, "0")}${validAfter
+        .toString(16)
+        .padStart(12, "0")}${(sponsorSignature as Hex).slice(2)}`;
+      
+      console.log("Debug - PaymasterData:", paymasterData);
+      
+      // Now try to validate the UserOperation directly with the paymaster contract
+      try {
+        console.log("Debug - Attempting to validate UserOperation with paymaster...");
+        
+        // Try to estimate gas for the operation with the generated paymaster data
+        const estimatedGas = await bundler.estimateUserOperationGas({
+          ...minTestUserOp,
+          paymaster: contractAddresses.paymaster,
+          paymasterData: paymasterData as Hex,
+        });
+        
+        console.log("Debug - Gas estimation successful:", estimatedGas);
+        setTxStatus("Paymaster validation successful! The UserOperation is valid.");
+      } catch (validationError) {
+        console.error("Debug - Paymaster validation error:", validationError);
+        setTxStatus(`Paymaster validation failed with error: ${validationError instanceof Error ? validationError.message : String(validationError)}`);
+      }
+    } catch (error) {
+      console.error("Debug error:", error);
+      setTxStatus(`Debug error: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
-    <div className="min-h-screen p-4 bg-gray-50 text-gray-900">
+    <div className="min-h-screen bg-gray-100 py-6 flex flex-col justify-center sm:py-12">
       <Head>
-        <title>Privy 4337 Demo</title>
-        <meta name="description" content="ERC-4337 with Privy Wallet Demo" />
+        <title>Privy + Account Abstraction Demo</title>
+        <meta name="description" content="Privy demo with Account Abstraction" />
         <link rel="icon" href="/favicon.ico" />
       </Head>
 
-      {/* Debug section */}
-      <div className="fixed bottom-0 left-0 right-0 bg-red-100 p-4 text-xs font-mono z-50 max-h-48 overflow-auto">
-        <h3 className="font-bold text-red-800">Debug Info:</h3>
-        <div>Privy Ready: {ready ? 'Yes' : 'No'}</div>
-        <div>Authenticated: {authenticated ? 'Yes' : 'No'}</div>
-        <div>Wallets Available: {wallets ? wallets.length : 0}</div>
-        <div>Wallets Types: {wallets ? wallets.map(w => w.walletClientType).join(', ') : 'None'}</div>
-        <div>Embedded Wallet: {embeddedWallet ? 'Loaded' : 'Not Loaded'}</div>
-        <div>Embedded Address: {embeddedWallet ? embeddedWallet.address : 'None'}</div>
-        <div>Viem Wallet: {viemWallet ? 'Initialized' : 'Not Initialized'}</div>
-        <div>Smart Account: {smartAccount ? smartAccount.address : 'Not Created'}</div>
-        <div>Bundler: {bundler ? 'Ready' : 'Not Ready'}</div>
-        <div>Paymaster: {contractAddresses.paymaster || 'Not Set'}</div>
-        <div>Loading: {loading ? 'Yes' : 'No'}</div>
-      </div>
+      <div className="relative py-3 sm:max-w-3xl mx-auto w-full px-4">
+        <div className="absolute inset-0 bg-gradient-to-r from-blue-400 to-indigo-500 shadow-lg transform -skew-y-6 sm:skew-y-0 sm:-rotate-6 sm:rounded-3xl"></div>
+        <div className="relative px-4 py-8 bg-white shadow-lg sm:rounded-3xl sm:p-10">
+          <div className="mx-auto">
+            <div className="divide-y divide-gray-200">
+              <div className="py-6 text-base leading-6 space-y-4 text-gray-700 sm:text-lg sm:leading-7">
+                <h1 className="text-3xl font-bold text-center">Privy + Account Abstraction Demo</h1>
+                <p className="text-center">Demonstrating ERC-4337 Account Abstraction with Privy</p>
+                
+                {!ready ? (
+                  <p className="text-center">Loading Privy...</p>
+                ) : !authenticated ? (
+                  <div className="text-center">
+                    <button onClick={login} className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">
+                      Login with Privy
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    <div className="border p-4 rounded-lg">
+                      <h2 className="text-xl font-semibold mb-2">Wallet Status</h2>
+                      {!embeddedWallet ? (
+                        <div>
+                          <p>No embedded wallet found. Please wait for Privy to create one automatically or refresh the page.</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          <p><strong>EOA Address:</strong> <span className="break-all">{embeddedWallet.address}</span></p>
+                          <p><strong>EOA Balance:</strong> {walletBalance} MON</p>
+                          {smartAccount && (
+                            <>
+                              <p><strong>Smart Account:</strong> <span className="break-all">{smartAccount.address}</span></p>
+                              <p><strong>Smart Account Balance:</strong> {smartAccountBalance} MON</p>
+                              {bondedShmon && (
+                                <p><strong>Bonded shMON:</strong> {bondedShmon} shMON</p>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
 
-      <main className="max-w-3xl mx-auto bg-white p-6 rounded-lg shadow-md">
-        <h1 className="text-3xl font-bold text-center mb-8 text-gray-800">
-          Privy 4337 Account Abstraction Demo
-        </h1>
-        
-        {!ready ? (
-          <div className="text-center text-gray-700">Loading Privy...</div>
-        ) : !authenticated ? (
-          <div className="text-center">
-            <button 
-              className="button bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-6 rounded-md transition-colors" 
-              onClick={() => login({
-                createWallet: true
-              } as any)}
-            >
-              Login with Privy
-            </button>
-          </div>
-        ) : (
-          <div className="space-y-6">
-            <div className="card bg-white border border-gray-200 p-6 rounded-lg shadow-sm">
-              <h2 className="text-xl font-semibold mb-2 text-gray-800">Wallet Information</h2>
-              <p className="text-gray-700">User: {user?.id}</p>
-              {embeddedWallet ? (
-                <div className="mt-2">
-                  <p className="text-gray-700">Embedded Wallet Address: {embeddedWallet.address}</p>
-                  {smartAccount && (
-                    <p className="mt-2 text-gray-700">Smart Account Address: {smartAccount.address}</p>
-                  )}
-                  {viemWallet && (
-                    <p className="mt-2 text-green-700">Viem Wallet: Initialized ✓</p>
-                  )}
-                  
-                  {/* Display balances */}
-                  <div className="mt-4 grid grid-cols-2 gap-4">
-                    <div className="p-3 bg-blue-50 rounded">
-                      <p className="text-sm font-medium text-blue-800">EOA Balance:</p>
-                      <p className="text-xl font-bold text-blue-600">{walletBalance} MON</p>
-                    </div>
-                    <div className="p-3 bg-purple-50 rounded">
-                      <p className="text-sm font-medium text-purple-800">Smart Account Balance:</p>
-                      <p className="text-xl font-bold text-purple-600">{smartAccountBalance} MON</p>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div>
-                  <p className="text-gray-600 mb-2">No embedded wallet detected. You need to create one to use this demo.</p>
-                  <p className="text-yellow-600 mb-2">Current wallets: {wallets ? wallets.map(w => w.walletClientType).join(', ') : 'None'}</p>
-                  <button 
-                    className="button bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-6 rounded-md transition-colors mt-2" 
-                    onClick={createEmbeddedWallet}
-                  >
-                    Create Embedded Wallet
-                  </button>
-                </div>
-              )}
-            </div>
-            
-            {/* New section for sponsored transactions */}
-            {smartAccount && (
-              <div className="card bg-gradient-to-r from-green-50 to-blue-50 border border-green-100 p-6 rounded-lg shadow-sm">
-                <h2 className="text-xl font-semibold mb-4 text-gray-800">Sponsored Transaction</h2>
-                <div className="mb-2 text-sm text-gray-700">
-                  This transaction is sponsored by the paymaster - you don't need gas!
-                </div>
-                <div className="mb-4">
-                  <label className="block text-sm font-medium mb-1 text-gray-700">
-                    Recipient Address (Optional - defaults to self)
-                  </label>
-                  <input
-                    type="text"
-                    value={sponsoredRecipient}
-                    onChange={(e) => setSponsoredRecipient(e.target.value)}
-                    placeholder="0x..."
-                    className="w-full p-2 border rounded text-gray-900"
-                  />
-                </div>
-                <div className="mb-4">
-                  <label className="block text-sm font-medium mb-1 text-gray-700">
-                    Amount (MON)
-                  </label>
-                  <input
-                    type="text"
-                    value={sponsoredAmount}
-                    onChange={(e) => setSponsoredAmount(e.target.value)}
-                    placeholder="0.001"
-                    className="w-full p-2 border rounded text-gray-900"
-                  />
-                </div>
-                <button
-                  className="button w-full bg-green-600 hover:bg-green-700 text-white font-medium py-2 rounded-md transition-colors"
-                  onClick={sendSponsoredTransaction}
-                  disabled={loading}
-                >
-                  {loading ? 'Processing...' : 'Send Sponsored Transaction'}
-                </button>
-                
-                {sponsoredTxStatus && (
-                  <div className="mt-4 p-3 bg-gray-100 rounded">
-                    <p className="font-medium text-gray-800">Status:</p>
-                    <p className="text-gray-700">{sponsoredTxStatus}</p>
-                    {sponsoredTxHash && (
-                      <p className="mt-2">
-                        <span className="font-medium text-gray-800">Transaction Hash:</span>{' '}
-                        <span className="break-all text-gray-700">{sponsoredTxHash}</span>
-                      </p>
+                    {smartAccount && contractAddresses.paymaster && (
+                      <>
+                        <div className="border p-4 rounded-lg">
+                          <h2 className="text-xl font-semibold mb-2">Contract Addresses</h2>
+                          <p><strong>Paymaster:</strong> <span className="break-all">{contractAddresses.paymaster}</span></p>
+                          <p><strong>shMON:</strong> <span className="break-all">{contractAddresses.shmonad}</span></p>
+                          <p><strong>Paymaster Deposit:</strong> {paymasterDeposit} MON</p>
+                        </div>
+
+                        <div className="border p-4 rounded-lg">
+                          <h2 className="text-xl font-semibold mb-2">Debug Tools</h2>
+                          <div className="flex flex-wrap gap-2">
+                            <button 
+                              onClick={debugUserOpSignature} 
+                              className="px-4 py-2 bg-purple-500 text-white rounded hover:bg-purple-600"
+                              disabled={loading}
+                            >
+                              Debug UserOp Signature
+                            </button>
+                            <button 
+                              onClick={debugUserOpWithPaymaster} 
+                              className="px-4 py-2 bg-purple-500 text-white rounded hover:bg-purple-600"
+                              disabled={loading}
+                            >
+                              Debug Paymaster
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="border p-4 rounded-lg">
+                          <h2 className="text-xl font-semibold mb-2">Send Transaction</h2>
+                          <div className="space-y-3">
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700">
+                                Recipient Address
+                              </label>
+                              <input
+                                type="text"
+                                value={recipient}
+                                onChange={(e) => setRecipient(e.target.value)}
+                                placeholder="0x..."
+                                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700">
+                                Amount (MON)
+                              </label>
+                              <input
+                                type="text"
+                                value={amount}
+                                onChange={(e) => setAmount(e.target.value)}
+                                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                              />
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              <button 
+                                onClick={sendTransaction} 
+                                className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
+                                disabled={loading}
+                              >
+                                Send Transaction
+                              </button>
+                            </div>
+                            {txHash && (
+                              <p><strong>UserOp Hash:</strong> <span className="break-all">{txHash}</span></p>
+                            )}
+                            {txStatus && (
+                              <p><strong>Status:</strong> <span className="break-words">{txStatus}</span></p>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="border p-4 rounded-lg">
+                          <h2 className="text-xl font-semibold mb-2">Sponsored Transaction</h2>
+                          <div className="space-y-3">
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700">
+                                Recipient Address
+                              </label>
+                              <input
+                                type="text"
+                                value={sponsoredRecipient}
+                                onChange={(e) => setSponsoredRecipient(e.target.value)}
+                                placeholder="0x..."
+                                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700">
+                                Amount (MON)
+                              </label>
+                              <input
+                                type="text"
+                                value={sponsoredAmount}
+                                onChange={(e) => setSponsoredAmount(e.target.value)}
+                                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                              />
+                            </div>
+                            <button 
+                              onClick={sendSponsoredTransaction} 
+                              className="px-4 py-2 bg-purple-500 text-white rounded hover:bg-purple-600"
+                              disabled={loading}
+                            >
+                              Send Sponsored Transaction
+                            </button>
+                            {sponsoredTxHash && (
+                              <p><strong>UserOp Hash:</strong> <span className="break-all">{sponsoredTxHash}</span></p>
+                            )}
+                            {sponsoredTxStatus && (
+                              <p><strong>Status:</strong> <span className="break-words">{sponsoredTxStatus}</span></p>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="border p-4 rounded-lg">
+                          <h2 className="text-xl font-semibold mb-2">Bond MON to shMON</h2>
+                          {bondedShmon === "0" ? (
+                            <div>
+                              <p>You need to bond MON to shMON to use self-sponsored transactions.</p>
+                              <button 
+                                onClick={bondMonToShmon} 
+                                className="mt-2 px-4 py-2 bg-orange-500 text-white rounded hover:bg-orange-600"
+                                disabled={loading}
+                              >
+                                Bond 2 MON to shMON
+                              </button>
+                            </div>
+                          ) : (
+                            <p>You have {bondedShmon} shMON bonded.</p>
+                          )}
+                        </div>
+
+                        {bondedShmon !== "0" && (
+                          <div className="border p-4 rounded-lg">
+                            <h2 className="text-xl font-semibold mb-2">Self-Sponsored Transaction</h2>
+                            <div className="space-y-3">
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700">
+                                  Recipient Address
+                                </label>
+                                <input
+                                  type="text"
+                                  value={selfSponsoredRecipient}
+                                  onChange={(e) => setSelfSponsoredRecipient(e.target.value)}
+                                  placeholder="0x..."
+                                  className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700">
+                                  Amount (MON)
+                                </label>
+                                <input
+                                  type="text"
+                                  value={selfSponsoredAmount}
+                                  onChange={(e) => setSelfSponsoredAmount(e.target.value)}
+                                  className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                                />
+                              </div>
+                              <button 
+                                onClick={sendSelfSponsoredTransaction} 
+                                className="px-4 py-2 bg-yellow-500 text-white rounded hover:bg-yellow-600"
+                                disabled={loading}
+                              >
+                                Send Self-Sponsored Transaction
+                              </button>
+                              {selfSponsoredTxHash && (
+                                <p><strong>UserOp Hash:</strong> <span className="break-all">{selfSponsoredTxHash}</span></p>
+                              )}
+                              {selfSponsoredTxStatus && (
+                                <p><strong>Status:</strong> <span className="break-words">{selfSponsoredTxStatus}</span></p>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
                 )}
               </div>
-            )}
-            
-            {/* New section for self-sponsored transactions matching the demo script */}
-            {smartAccount && (
-              <div className="card bg-gradient-to-r from-yellow-50 to-orange-50 border border-yellow-100 p-6 rounded-lg shadow-sm">
-                <h2 className="text-xl font-semibold mb-4 text-gray-800">Self-Sponsored Transaction (Demo Flow)</h2>
-                <div className="mb-2 text-sm text-gray-700">
-                  This follows the exact demo script flow for a self-sponsored transaction.
-                </div>
-                
-                {/* Display bond and deposit information */}
-                <div className="mb-4 grid grid-cols-2 gap-4">
-                  <div className="p-3 bg-yellow-100 rounded text-sm">
-                    <p className="font-medium text-gray-800">Bonded MON:</p>
-                    <p className="text-lg font-bold text-amber-700">{bondedShmon} MON</p>
-                    <p className="text-xs text-gray-600 mt-1">(Need 2.0 MON to self-sponsor)</p>
-                  </div>
-                  <div className="p-3 bg-orange-100 rounded text-sm">
-                    <p className="font-medium text-gray-800">Paymaster Deposit:</p>
-                    <p className="text-lg font-bold text-amber-700">{paymasterDeposit} MON</p>
-                    <p className="text-xs text-gray-600 mt-1">(Need 5.0 MON for ops)</p>
-                  </div>
-                </div>
-                
-                {/* Add Bond button */}
-                <div className="mb-4">
-                  <button
-                    className="button w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 rounded-md transition-colors mb-4"
-                    onClick={bondMonToShmon}
-                    disabled={loading || parseFloat(bondedShmon) >= 2.0}
-                  >
-                    {loading ? 'Processing...' : parseFloat(bondedShmon) >= 2.0 ? 'Already Bonded ✓' : 'Bond MON to shMON (2.0 MON)'}
-                  </button>
-                </div>
-                
-                <div className="mb-4">
-                  <label className="block text-sm font-medium mb-1 text-gray-700">
-                    Recipient Address (Optional - defaults to self)
-                  </label>
-                  <input
-                    type="text"
-                    value={selfSponsoredRecipient}
-                    onChange={(e) => setSelfSponsoredRecipient(e.target.value)}
-                    placeholder="0x..."
-                    className="w-full p-2 border rounded text-gray-900"
-                  />
-                </div>
-                <div className="mb-4">
-                  <label className="block text-sm font-medium mb-1 text-gray-700">
-                    Amount (MON)
-                  </label>
-                  <input
-                    type="text"
-                    value={selfSponsoredAmount}
-                    onChange={(e) => setSelfSponsoredAmount(e.target.value)}
-                    placeholder="0.001"
-                    className="w-full p-2 border rounded text-gray-900"
-                  />
-                </div>
-                <button
-                  className="button w-full bg-amber-600 hover:bg-amber-700 text-white font-medium py-2 rounded-md transition-colors"
-                  onClick={sendSelfSponsoredTransaction}
-                  disabled={loading || parseFloat(bondedShmon) < 2.0}
-                >
-                  {loading ? 'Processing...' : 'Send Self-Sponsored Transaction'}
-                </button>
-                
-                {selfSponsoredTxStatus && (
-                  <div className="mt-4 p-3 bg-amber-50 rounded">
-                    <p className="font-medium text-gray-800">Status:</p>
-                    <p className="text-gray-700">{selfSponsoredTxStatus}</p>
-                    {selfSponsoredTxHash && (
-                      <p className="mt-2">
-                        <span className="font-medium text-gray-800">Transaction Hash:</span>{' '}
-                        <span className="break-all text-gray-700">{selfSponsoredTxHash}</span>
-                      </p>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-            
-            {smartAccount && (
-              <div className="card bg-white border border-gray-200 p-6 rounded-lg shadow-sm">
-                <h2 className="text-xl font-semibold mb-4 text-gray-800">Send Transaction with Account Abstraction</h2>
-                <div className="mb-4">
-                  <label className="block text-sm font-medium mb-1 text-gray-700">
-                    Recipient Address (Optional - defaults to self)
-                  </label>
-                  <input
-                    type="text"
-                    value={recipient}
-                    onChange={(e) => setRecipient(e.target.value)}
-                    placeholder="0x..."
-                    className="w-full p-2 border rounded text-gray-900"
-                  />
-                </div>
-                <div className="mb-4">
-                  <label className="block text-sm font-medium mb-1 text-gray-700">
-                    Amount (MON)
-                  </label>
-                  <input
-                    type="text"
-                    value={amount}
-                    onChange={(e) => setAmount(e.target.value)}
-                    placeholder="0.001"
-                    className="w-full p-2 border rounded text-gray-900"
-                  />
-                </div>
-                <button
-                  className="button w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 rounded-md transition-colors"
-                  onClick={sendTransaction}
-                  disabled={loading}
-                >
-                  {loading ? 'Processing...' : 'Send Transaction with AA'}
-                </button>
-                
-                {txStatus && (
-                  <div className="mt-4 p-3 bg-gray-100 rounded">
-                    <p className="font-medium text-gray-800">Status:</p>
-                    <p className="text-gray-700">{txStatus}</p>
-                    {txHash && (
-                      <p className="mt-2">
-                        <span className="font-medium text-gray-800">Transaction Hash:</span>{' '}
-                        <span className="break-all text-gray-700">{txHash}</span>
-                      </p>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-            
-            {viemWallet && (
-              <div className="card bg-white border border-gray-200 p-6 rounded-lg shadow-sm">
-                <h2 className="text-xl font-semibold mb-4 text-gray-800">Send Transaction with Viem Wallet</h2>
-                <div className="mb-4">
-                  <label className="block text-sm font-medium mb-1 text-gray-700">
-                    Recipient Address (Optional - defaults to self)
-                  </label>
-                  <input
-                    type="text"
-                    value={recipient}
-                    onChange={(e) => setRecipient(e.target.value)}
-                    placeholder="0x..."
-                    className="w-full p-2 border rounded text-gray-900"
-                  />
-                </div>
-                <div className="mb-4">
-                  <label className="block text-sm font-medium mb-1 text-gray-700">
-                    Amount (MON)
-                  </label>
-                  <input
-                    type="text"
-                    value={amount}
-                    onChange={(e) => setAmount(e.target.value)}
-                    placeholder="0.001"
-                    className="w-full p-2 border rounded text-gray-900"
-                  />
-                </div>
-                <button
-                  className="button w-full bg-green-600 hover:bg-green-700 text-white font-medium py-2 rounded-md transition-colors"
-                  onClick={sendViemTransaction}
-                  disabled={loading}
-                >
-                  {loading ? 'Processing...' : 'Send with Viem Wallet'}
-                </button>
-                
-                {viemTxStatus && (
-                  <div className="mt-4 p-3 bg-gray-100 rounded">
-                    <p className="font-medium text-gray-800">Status:</p>
-                    <p className="text-gray-700">{viemTxStatus}</p>
-                    {viemTxHash && (
-                      <p className="mt-2">
-                        <span className="font-medium text-gray-800">Transaction Hash:</span>{' '}
-                        <span className="break-all text-gray-700">{viemTxHash}</span>
-                      </p>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-            
-            <div className="card bg-gray-50 border border-gray-200 p-6 rounded-lg shadow-sm">
-              <h2 className="text-xl font-semibold mb-2 text-gray-800">About This Demo</h2>
-              <p className="text-gray-700">
-                This demo shows how to use the Privy embedded wallet with ERC-4337 Account Abstraction.
-                It creates a Smart Account for the embedded wallet and uses custom UserOperation 
-                serialization to send transactions through a bundler with a paymaster.
-              </p>
-              <p className="mt-2 text-gray-700">
-                Additionally, it demonstrates how to convert a Privy embedded wallet to a Viem wallet client,
-                allowing you to use it with standard Viem functions.
-              </p>
-              <p className="mt-2 text-green-700 font-semibold">
-                NEW: The demo now includes a sponsored transaction feature where gas fees are covered
-                by the paymaster, enabling gasless transactions for your users!
-              </p>
             </div>
           </div>
-        )}
-      </main>
-      
-      <style jsx global>{`
-        html, body {
-          background-color: #f5f7fa;
-        }
-        .button {
-          display: inline-block;
-          padding: 0.5rem 1rem;
-          font-weight: 600;
-          text-align: center;
-          border-radius: 0.375rem;
-          transition: all 150ms ease-in-out;
-        }
-        .card {
-          border-radius: 0.5rem;
-          overflow: hidden;
-        }
-      `}</style>
+        </div>
+      </div>
     </div>
   );
-} 
+}

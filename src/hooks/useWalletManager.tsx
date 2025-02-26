@@ -1,6 +1,11 @@
 import { useState, useEffect } from 'react';
 import { usePrivy, useWallets, useCreateWallet, ConnectedWallet } from '@privy-io/react-auth';
-import { initBundler, type ShBundlerClient, createShBundlerClient } from '@/utils/bundler';
+import { 
+  initBundler, 
+  initBundlerWithPaymaster, 
+  type ShBundlerClient, 
+  createShBundlerClient 
+} from '@/utils/bundler';
 import {
   publicClient,
   ENTRY_POINT_ADDRESS,
@@ -27,6 +32,7 @@ import paymasterAbi from '@/abis/paymaster.json';
 import shmonadAbi from '@/abis/shmonad.json';
 import { createSmartAccountClient } from 'permissionless';
 import { toSimpleSmartAccount } from 'permissionless/accounts';
+import { createCustomPaymasterClient } from '@/utils/paymaster';
 
 // Define the EntryPoint address
 const entryPoint07Address = ENTRY_POINT_ADDRESS;
@@ -195,8 +201,34 @@ export function useWalletManager() {
                 paymaster,
                 shmonad,
               });
+              
+              // If we have a sponsor wallet, create a paymaster client and initialize a bundler with it
+              if (sponsorWallet && paymaster) {
+                console.log('Creating custom paymaster client...');
+                const paymasterClient = createCustomPaymasterClient({
+                  paymasterAddress: paymaster,
+                  paymasterAbi: paymasterAbi,
+                  sponsorWallet: sponsorWallet,
+                });
+                
+                console.log('Initializing bundler with paymaster...');
+                const bundlerWithPaymaster = initBundlerWithPaymaster(
+                  simpleSmartAccount,
+                  client,
+                  paymasterClient
+                );
+                
+                // Update the bundler to use the one with paymaster
+                console.log('Using bundler with paymaster integration');
+                setBundler(bundlerWithPaymaster);
+              } else {
+                // Fall back to regular bundler if sponsor wallet not available
+                setBundler(bundlerClient);
+              }
             } catch (error) {
               console.error('Error getting contract addresses:', error);
+              // Fall back to regular bundler
+              setBundler(bundlerClient);
             }
           } catch (error) {
             console.error('Error creating simple account:', error);

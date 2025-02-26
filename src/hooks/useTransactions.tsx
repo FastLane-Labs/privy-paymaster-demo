@@ -163,7 +163,7 @@ export function useTransactions(walletManager: TransactionWalletManager) {
 
   // Sponsored transaction using the paymaster sponsorship
   async function sendSponsoredTransaction(recipient: string, amount: string) {
-    if (!smartAccount || !bundler || !sponsorWallet || !contractAddresses?.paymaster) {
+    if (!smartAccount || !bundler) {
       setSponsoredTxStatus('Required components not initialized');
       return;
     }
@@ -180,79 +180,30 @@ export function useTransactions(walletManager: TransactionWalletManager) {
         ? (recipient as Address)
         : smartAccount.address;
 
-      // Step 1: Initialize the paymaster contract
-      const paymasterContract = await initContract(
-        contractAddresses.paymaster,
-        paymasterAbi,
-        publicClient
-      );
-
-      // Step 2: Get gas price
+      // Get gas price
       const gasPrice = await bundler.getUserOperationGasPrice();
 
-      // Step 3: Create the transaction call
-      const call = {
-        to: to,
-        value: parsedAmount,
-        data: '0x' as Hex,
-      };
-
-      // Step 4: Set validity window for the sponsorship
-      const validAfter = 0n;
-      const validUntil = BigInt(Math.floor(Date.now() / 1000) + 60 * 60); // Valid for 1 hour
-
-      // Step 5: Prepare UserOperation (this handles all the gas estimation and formatting)
-      setSponsoredTxStatus('Preparing UserOperation...');
-      const userOp = await bundler.prepareUserOperation({
-        account: smartAccount,
-        calls: [call],
-        ...gasPrice.slow,
-      });
-
-      // Step 6: Get the hash to sign from the paymaster
-      setSponsoredTxStatus('Getting hash for sponsor to sign...');
-      const hash = await paymasterContract.read.getHash([
-        toPackedUserOperation(userOp),
-        validUntil,
-        validAfter,
-      ]) as Hex;
-
-      // Step 7: Sign the hash with the sponsor wallet
-      setSponsoredTxStatus('Sponsor signing transaction hash...');
-      if (!sponsorWallet.account) {
-        throw new Error("Sponsor wallet account is not available");
-      }
-      
-      const sponsorSignature = await sponsorWallet.signMessage({
-        account: sponsorWallet.account,
-        message: { raw: hash },
-      });
-
-      // Step 8: Create paymaster data
-      const paymasterData = paymasterMode(
-        "sponsor",
-        validUntil,
-        validAfter,
-        sponsorSignature,
-        sponsorWallet
-      ) as Hex;
-
-      // Step 9: Send the transaction with sponsorship
+      // Send the transaction with sponsorship handling by the bundler
+      // The paymaster client is already integrated into the bundler
+      // so we don't need to handle sponsorship logic here
       setSponsoredTxStatus('Sending sponsored transaction...');
-      // Note: In actual ShBundler implementation, there might be more sophisticated
-      // ways to send with paymaster data, but for now we follow this approach
       const userOpHash = await bundler.sendUserOperation({
         account: smartAccount,
-        calls: [call],
+        calls: [
+          {
+            to: to,
+            value: parsedAmount,
+            data: '0x' as Hex,
+          },
+        ],
         maxFeePerGas: gasPrice.slow.maxFeePerGas,
         maxPriorityFeePerGas: gasPrice.slow.maxPriorityFeePerGas,
-        paymasterAndData: paymasterData
       });
       
       setSponsoredTxHash(userOpHash);
       setSponsoredTxStatus('Waiting for transaction confirmation...');
 
-      // Step 10: Wait for the receipt
+      // Wait for the receipt
       const receipt = await bundler.waitForUserOperationReceipt({
         hash: userOpHash,
       });

@@ -2,6 +2,9 @@ import {
   type BundlerClient,
   type SmartAccount,
   createBundlerClient,
+  type UserOperation,
+  type GetPaymasterDataParameters,
+  type GetPaymasterDataReturnType,
 } from 'viem/account-abstraction';
 import { http, type Client, type Hex, hexToBigInt, type Transport, type Chain, type Address } from 'viem';
 import { MONAD_CHAIN, SHBUNDLER_URL, ENTRY_POINT_ADDRESS } from './config';
@@ -29,6 +32,11 @@ export interface GasPriceResult {
   slow: GasPrices;
 }
 
+// Custom paymaster client interface
+export interface CustomPaymaster {
+  sponsorUserOperation: (params: { userOperation: GetPaymasterDataParameters }) => Promise<GetPaymasterDataReturnType>;
+}
+
 // Define our custom client type with the additional method
 export type ShBundlerClient = BundlerClient & {
   getUserOperationGasPrice: () => Promise<GasPriceResult>;
@@ -43,6 +51,9 @@ export interface ShBundlerClientConfig {
   entryPoint?: {
     address: Address;
     version: "0.6" | "0.7";
+  };
+  paymaster?: {
+    getPaymasterData?: (parameters: GetPaymasterDataParameters) => Promise<GetPaymasterDataReturnType>;
   };
 }
 
@@ -80,6 +91,9 @@ export function createShBundlerClient(
     account: config.account,
     client: config.client,
     chain: config.chain || MONAD_CHAIN,
+    paymaster: config.paymaster ? {
+      getPaymasterData: config.paymaster.getPaymasterData,
+    } : undefined,
   });
   
   // Add our custom methods
@@ -106,6 +120,27 @@ export function createShBundlerClient(
   };
   
   return shBundlerClient;
+}
+
+// Function to create a bundler with a custom paymaster client
+export function initBundlerWithPaymaster(
+  account: SmartAccount, 
+  publicClient: Client,
+  customPaymaster: CustomPaymaster
+): ShBundlerClient {
+  return createShBundlerClient({
+    transport: http(SHBUNDLER_URL),
+    account,
+    client: publicClient,
+    chain: MONAD_CHAIN,
+    entryPoint: {
+      address: ENTRY_POINT_ADDRESS as Address,
+      version: "0.7"
+    },
+    paymaster: {
+      getPaymasterData: (parameters) => customPaymaster.sponsorUserOperation({ userOperation: parameters }),
+    }
+  });
 }
 
 // For backward compatibility

@@ -1,0 +1,20 @@
+# Zero-dev Integration with Privy
+
+This project integrates Zero-dev's Account Abstraction infrastructure with Privy's embedded wallet solution.
+
+## Integration Guidelines
+- Privy is used for wallet creation and management
+- Zero-dev is used for Account Abstraction and smart accounts
+- Kernel account type is used for the smart account implementation
+- All user operations are sponsored by Zero-dev's paymaster
+
+## Important Details
+- The embedded wallet from Privy serves as the base signer for the Kernel account
+- Kernel client handles UserOperation creation, gas estimation, and submission
+- Gas fees are covered by the Zero-dev paymaster by default
+- EOA signature is generated using Privy's embedded wallet and passed to the Kernel account
+
+## Key Components
+- `useWalletManager.tsx`: Initializes the Kernel account and client
+- `useTransactions.tsx`: Handles transaction operations using the Kernel client
+- The integration follows Zero-dev's SDK specifications for Kernel accounts 

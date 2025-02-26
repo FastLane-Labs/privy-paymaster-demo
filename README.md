@@ -101,7 +101,7 @@ const userOp = await bundler.prepareUserOperation({
 const userOpWithPaymaster = {
   ...userOp,
   paymaster: paymasterAddress,
-  paymasterData: paymasterMode("sponsor"),
+  paymasterData: paymasterMode('sponsor'),
   maxFeePerGas: gasPrice.slow.maxFeePerGas,
   maxPriorityFeePerGas: gasPrice.slow.maxPriorityFeePerGas,
 };

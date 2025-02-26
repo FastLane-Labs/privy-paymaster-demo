@@ -14,10 +14,6 @@ declare module '@privy-io/react-auth' {
       primaryType: string;
       message: Record<string, any>;
     }) => Promise<Hex>;
-    sendTransaction: (params: {
-      to: Address;
-      value?: string | bigint;
-      data?: Hex;
-    }) => Promise<Hex>;
+    sendTransaction: (params: { to: Address; value?: string | bigint; data?: Hex }) => Promise<Hex>;
   }
-} 
+}

@@ -9,7 +9,7 @@ export const SHBUNDLER_URL =
   'https://monad-testnet.4337-shbundler-fra.fastlane-labs.xyz';
 export const ADDRESS_HUB = process.env.NEXT_PUBLIC_ADDRESS_HUB as Address;
 export const ENTRY_POINT_ADDRESS = entryPoint07Address as `0x${string}`;
-export const SPONSOR_PRIVATE_KEY = process.env.NEXT_PUBLIC_SPONSOR_WALLET_PRIVATE_KEY;
+
 
 export const MONAD_CHAIN: Chain = {
   id: MONAD_TESTNET_CHAIN_ID,

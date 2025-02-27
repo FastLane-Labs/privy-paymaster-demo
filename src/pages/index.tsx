@@ -21,7 +21,6 @@ export default function Home() {
   const {
     embeddedWallet,
     smartAccount,
-    sponsorWallet,
     bundler,
     loading,
     setLoading,
@@ -143,7 +142,7 @@ export default function Home() {
       setTxStatus(`Paymaster configuration check completed. Check console logs for details.`);
       
       // If we have a bundler, try a sponsored transaction to test it
-      if (smartAccount && bundler && configStatus.sponsorWallet) {
+      if (smartAccount && bundler && (await configStatus).paymaster) {
         try {
           setTxStatus('Testing sponsored transaction with minimal value...');
           // Send a minimal test transaction to self
@@ -232,33 +231,25 @@ export default function Home() {
                         />
 
                         <TransactionForm
-                          title="Send Transaction"
-                          buttonText="Send Transaction"
-                          onSubmit={sendTransaction}
-                          loading={loading}
-                          disabled={!sponsorWallet}
-                          disabledReason={
-                            !sponsorWallet
-                              ? 'Sponsor wallet not available. SPONSOR_PRIVATE_KEY is missing.'
-                              : undefined
-                          }
-                          txHash={txHash}
-                          txStatus={txStatus}
-                        />
-
-                        <TransactionForm
                           title="Sponsored Transaction"
                           buttonText="Send Sponsored Transaction"
                           onSubmit={sendSponsoredTransaction}
                           loading={loading}
-                          disabled={!sponsorWallet}
-                          disabledReason={
-                            !sponsorWallet
-                              ? 'Sponsor wallet not available. SPONSOR_PRIVATE_KEY is missing.'
-                              : undefined
-                          }
+                          disabled={false}
+                          disabledReason={undefined}
                           txHash={sponsoredTxHash}
                           txStatus={sponsoredTxStatus}
+                        />
+
+                        <TransactionForm
+                          title="Send Transaction"
+                          buttonText="Send Transaction"
+                          onSubmit={sendTransaction}
+                          loading={loading}
+                          disabled={false}
+                          disabledReason={undefined}
+                          txHash={txHash}
+                          txStatus={txStatus}
                         />
 
                         <BondMonForm

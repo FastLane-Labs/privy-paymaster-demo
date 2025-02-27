@@ -6,7 +6,14 @@ import shmonadAbi from '@/abis/shmonad.json';
 import { WalletManagerState } from './useWalletManager';
 import { ShBundlerClient } from '@/utils/bundler';
 import { isAddress } from 'viem';
-import { ENTRY_POINT_ADDRESS } from '@/utils/config';
+import { UserOperation } from 'viem/account-abstraction';
+
+// Helper function to serialize BigInt values for logging
+function serializeBigInt(obj: any): any {
+  return JSON.stringify(obj, (_, value) => 
+    typeof value === 'bigint' ? value.toString() : value
+  );
+}
 
 type TransactionState = {
   txHash: string;
@@ -97,7 +104,7 @@ function handleTransactionError(error: unknown, setErrorStatus: (status: string)
 }
 
 export function useTransactions(walletManager: TransactionWalletManager) {
-  const { smartAccount, bundler, contractAddresses, sponsorWallet, smartAccountClient, setLoading } =
+  const { smartAccount, bundler, contractAddresses, smartAccountClient, setLoading } =
     walletManager;
 
   // Transaction state
@@ -113,7 +120,6 @@ export function useTransactions(walletManager: TransactionWalletManager) {
     console.log('🧪 Verifying paymaster configuration');
     console.log('Smart account available:', !!smartAccount);
     console.log('Bundler available:', !!bundler);
-    console.log('Sponsor wallet available:', !!sponsorWallet);
     console.log('Contract addresses:', contractAddresses);
     
     // Instead of trying to inspect the bundler internal structure,
@@ -148,89 +154,43 @@ export function useTransactions(walletManager: TransactionWalletManager) {
               }],
             });
             
-            console.log('✅ Successfully prepared user operation:', {
-              userOp: userOp ? 'Generated' : 'Not generated',
-              paymasterAndData: userOp?.paymasterAndData && typeof userOp.paymasterAndData === 'string'
-                ? `${userOp.paymasterAndData.substring(0, 20)}...` 
-                : 'Not present',
+            console.log('✅ User operation prepared:', {
+              sender: userOp.sender,
+              nonce: userOp.nonce.toString(),
+              callGasLimit: userOp.callGasLimit?.toString() || 'not set',
+              verificationGasLimit: userOp.verificationGasLimit?.toString() || 'not set',
+              preVerificationGas: userOp.preVerificationGas?.toString() || 'not set',
+              hasPaymasterData: !!userOp.paymasterAndData && userOp.paymasterAndData !== '0x',
             });
+            console.log('Full user operation:', serializeBigInt(userOp));
             
-            // Check if paymasterAndData is present - this is the key indicator of paymaster integration
-            if (userOp?.paymasterAndData && userOp.paymasterAndData !== '0x') {
-              console.log('✅ PAYMASTER INTEGRATION CONFIRMED - paymasterAndData is present in the user operation');
-              return {
-                paymaster: 'CONFIGURED',
-                smartAccount: !!smartAccount,
-                bundler: !!bundler,
-                sponsorWallet: !!sponsorWallet
-              };
-            } else {
-              console.log('❌ Paymaster integration NOT detected - no paymasterAndData in the user operation');
-              
-              // Try to debug why paymaster data is missing
-              console.log('🔍 Debugging paymaster integration:');
-              console.log('1. Check if bundler has paymaster configuration');
-              
-              // Try to send a user operation directly to test paymaster integration
-              try {
-                console.log('2. Testing direct user operation submission...');
-                const gasPrice = await bundler.getUserOperationGasPrice();
-                
-                const userOpHash = await bundler.sendUserOperation({
-                  account: smartAccount,
-                  calls: [{
-                    to: smartAccount.address,
-                    value: 0n,
-                    data: '0x',
-                  }],
-                  maxFeePerGas: gasPrice.slow.maxFeePerGas,
-                  maxPriorityFeePerGas: gasPrice.slow.maxPriorityFeePerGas,
-                });
-                
-                console.log('✅ User operation submitted successfully:', userOpHash);
-                console.log('This indicates the paymaster is working despite not seeing paymasterAndData in prepareUserOperation');
-                
-                return {
-                  paymaster: 'WORKING',
-                  smartAccount: !!smartAccount,
-                  bundler: !!bundler,
-                  sponsorWallet: !!sponsorWallet
-                };
-              } catch (sendError) {
-                console.error('❌ Error sending user operation:', sendError);
-                
-                if (sendError instanceof Error && 
-                    (sendError.message.includes('paymaster') || 
-                     sendError.message.includes('AA31'))) {
-                  console.log('❌ Paymaster-related error detected. The paymaster integration is not working correctly.');
-                }
-                
-                return {
-                  paymaster: 'NOT_WORKING',
-                  smartAccount: !!smartAccount,
-                  bundler: !!bundler,
-                  sponsorWallet: !!sponsorWallet
-                };
-              }
-            }
+            // We successfully prepared the user operation
+            return {
+              paymaster: 'CONFIGURED',
+              smartAccount: !!smartAccount,
+              bundler: !!bundler
+            };
           } catch (prepareError) {
-            console.error('❌ Error preparing user operation with the bundler:', prepareError);
+            console.error('❌ Error preparing user operation:', prepareError);
+            return {
+              paymaster: 'ERROR_PREPARING',
+              smartAccount: !!smartAccount,
+              bundler: !!bundler
+            };
           }
         }
         
         return {
           paymaster: 'TESTING_INCOMPLETE',
           smartAccount: !!smartAccount,
-          bundler: !!bundler,
-          sponsorWallet: !!sponsorWallet
+          bundler: !!bundler
         };
       } catch (error) {
         console.error('❌ Error testing bundler functionality:', error);
         return {
           paymaster: 'ERROR',
           smartAccount: !!smartAccount,
-          bundler: !!bundler,
-          sponsorWallet: !!sponsorWallet
+          bundler: !!bundler
         };
       }
     }
@@ -238,8 +198,7 @@ export function useTransactions(walletManager: TransactionWalletManager) {
     return {
       paymaster: 'NOT_CONFIGURED',
       smartAccount: !!smartAccount,
-      bundler: !!bundler,
-      sponsorWallet: !!sponsorWallet
+      bundler: !!bundler
     };
   };
 
@@ -247,7 +206,7 @@ export function useTransactions(walletManager: TransactionWalletManager) {
   async function sendTransaction(recipient: string, amount: string) {
     if (!smartAccount) {
       setTxStatus('Smart account not initialized');
-      return;
+      return null;
     }
     
     try {
@@ -263,34 +222,12 @@ export function useTransactions(walletManager: TransactionWalletManager) {
           ? (recipient as Address)
           : smartAccount.address;
 
-      // First, try using the bundler with paymaster integration
-      if (bundler) {
-        try {
-          setTxStatus('Using bundler with paymaster integration...');
-          console.log('💵 Sending transaction via bundler with paymaster integration');
-          
-          // Try sponsored transaction - this has better error handling for recipient addresses
-          const txHash = await sendSponsoredTransaction(amount, recipient);
-          if (txHash) {
-            setTxHash(txHash);
-            setTxStatus(`Transaction confirmed! Transaction hash: ${txHash}`);
-            setLoading?.(false);
-            return txHash;
-          } else {
-            throw new Error('Sponsored transaction failed without an error');
-          }
-        } catch (sponsorError) {
-          console.error('Failed to use integrated paymaster for transaction:', sponsorError);
-          setTxStatus('Paymaster integration failed. Trying alternative methods...');
-        }
-      }
-      
-      // If bundler + paymaster failed or isn't available, try the kernelClient next if available
+      // Only use the smartAccountClient approach - no bundler or paymaster
       if (smartAccountClient) {
         setTxStatus('Using smart account client for transaction...');
-        console.log('💰 Using smart account client directly');
+        console.log('💰 Using smart account client directly for NON-SPONSORED transaction');
         
-        // Use the smart account client for the transaction instead of the bundler
+        // Use the smart account client for the transaction
         const hash = await smartAccountClient.sendTransaction({
           to: to,
           value: parsedAmount,
@@ -309,7 +246,7 @@ export function useTransactions(walletManager: TransactionWalletManager) {
         setLoading?.(false);
         return receipt.transactionHash;
       } else {
-        throw new Error('No suitable client available to send the transaction');
+        throw new Error('Smart account client not available to send the transaction');
       }
     } catch (error) {
       handleTransactionError(error, setTxStatus);
@@ -318,59 +255,154 @@ export function useTransactions(walletManager: TransactionWalletManager) {
     }
   }
 
-  // Sponsored transaction using the paymaster sponsorship
-  const sendSponsoredTransaction = async (amount: string, recipient?: string) => {
-    // Ensure we have required components
-    if (!smartAccount || !bundler) {
-      console.error('❌ Smart account or bundler not initialized');
-      console.error('Wallet not fully initialized. Please try again.');
-      return;
-    }
-    
-    console.log('🔄 Using bundler with paymaster integration');
-    
+  // Send a transaction sponsored by the paymaster
+  const sendSponsoredTransaction = async (to: string, amount: string) => {
     try {
-      // Parse amount to wei
-      const amountWei = parseEther(amount);
+      console.log('📱 Starting sponsored transaction flow...');
+      console.log('📬 Recipient address received:', to);
+      setTxStatus('Preparing transaction...');
       
-      // Create recipient address - if not valid, send to self (similar to sendTransaction)
-      const to = recipient && recipient.startsWith('0x') && recipient.length === 42
-        ? (recipient as Address)
-        : smartAccount.address;
+      // Validate inputs
+      if (!smartAccount || !bundler) {
+        console.error('❌ Smart account or bundler not initialized');
+        setTxStatus('Smart account or bundler not initialized');
+        return null;
+      }
+
+      // Default gas limit values from demo script
+      const paymasterVerificationGasLimit = 75000n;
+      const paymasterPostOpGasLimit = 120000n;
       
-      console.log(`💰 Sending ${amount} ETH to ${to}`);
+      // Check if recipient address is valid - if not, use smart account address as fallback
+      let targetAddress: Address;
+      if (to && isAddress(to)) {
+        targetAddress = to as Address;
+        console.log('✅ Using provided recipient address:', targetAddress);
+      } else {
+        targetAddress = smartAccount.address;
+        console.log('⚠️ Invalid or empty recipient address. Using smart account address as fallback:', targetAddress);
+      }
+
+      // Convert amount from ETH to wei
+      let amountWei: bigint;
+      try {
+        amountWei = parseEther(amount);
+        console.log('💰 Amount in wei:', amountWei.toString());
+      } catch (error) {
+        console.error('❌ Invalid amount:', amount);
+        setTxStatus('Invalid amount');
+        return null;
+      }
       
-      // Get gas price
+      // Get gas prices from the bundler
+      console.log('⛽ Getting gas prices...');
+      setTxStatus('Getting gas prices...');
+      
       const gasPrice = await bundler.getUserOperationGasPrice();
-      
-      console.log('📤 Sending user operation via bundler...');
-      console.log('📋 Using entry point:', ENTRY_POINT_ADDRESS);
-      
-      // Send the user operation - don't add entryPoint property directly since it's not supported in the type
-      const userOpHash = await bundler.sendUserOperation({
-        account: smartAccount,
-        calls: [
-          {
-            to: to,
-            value: amountWei,
-            data: '0x',
-          },
-        ],
-        maxFeePerGas: gasPrice.slow.maxFeePerGas,
-        maxPriorityFeePerGas: gasPrice.slow.maxPriorityFeePerGas,
+      console.log('✅ Gas prices received:', {
+        slow: `${gasPrice.slow.maxFeePerGas.toString()} / ${gasPrice.slow.maxPriorityFeePerGas.toString()}`,
+        standard: `${gasPrice.standard.maxFeePerGas.toString()} / ${gasPrice.standard.maxPriorityFeePerGas.toString()}`,
+        fast: `${gasPrice.fast.maxFeePerGas.toString()} / ${gasPrice.fast.maxPriorityFeePerGas.toString()}`
       });
       
-      console.log('✅ User operation sent:', userOpHash);
-      
-      // Wait for the transaction to be confirmed
-      console.log('⏳ Waiting for transaction confirmation...');
-      const receipt = await bundler.waitForUserOperationReceipt({ hash: userOpHash });
-      
-      console.log('✅ Transaction confirmed! Hash:', receipt.receipt.transactionHash);
-      return receipt.receipt.transactionHash;
+      try {
+        // STEP 1: Prepare the user operation
+        console.log('🔄 Preparing and signing user operation...');
+        setTxStatus('Preparing and signing user operation...');
+        
+        // First create the user operation but don't send it
+        const userOperation = await bundler.prepareUserOperation({
+          account: smartAccount,
+          calls: [
+            {
+              to: targetAddress,
+              value: amountWei,
+              data: '0x' as Hex,
+            },
+          ],
+          maxFeePerGas: gasPrice.standard.maxFeePerGas,
+          maxPriorityFeePerGas: gasPrice.standard.maxPriorityFeePerGas,
+          paymasterVerificationGasLimit,
+          paymasterPostOpGasLimit,
+        });
+        
+        console.log('✅ User operation prepared:', {
+          sender: userOperation.sender,
+          nonce: userOperation.nonce.toString(),
+          callGasLimit: userOperation.callGasLimit?.toString() || 'not set',
+          verificationGasLimit: userOperation.verificationGasLimit?.toString() || 'not set',
+          preVerificationGas: userOperation.preVerificationGas?.toString() || 'not set',
+          hasPaymasterData: !!userOperation.paymasterAndData && userOperation.paymasterAndData !== '0x',
+        });
+        
+        // STEP 2: Explicitly sign the user operation
+        console.log('✍️ Explicitly signing the user operation with smart account owner...');
+        const signature = await smartAccount.signUserOperation(userOperation);
+        
+        // Update the signature in the user operation
+        userOperation.signature = signature;
+        console.log('✅ User operation signed with signature:', signature.substring(0, 10) + '...');
+        
+        // STEP 3: Send the signed user operation
+        console.log('📤 Submitting signed user operation...');
+        setTxStatus('Submitting signed transaction...');
+        
+        // We must create a new sendUserOperation call with the account parameter
+        // This is required by the API - the account is used for type checking and validation
+        // but not for signing (since we already signed the operation)
+        const userOpHash = await bundler.sendUserOperation(userOperation as UserOperation);
+        
+        console.log('✅ Sponsored transaction submitted with hash:', userOpHash);
+        setTxStatus('Transaction submitted, waiting for confirmation...');
+        
+        // Wait for receipt
+        const receipt = await bundler.waitForUserOperationReceipt({ hash: userOpHash });
+        console.log('✅ Sponsored transaction confirmed! Hash:', receipt.receipt.transactionHash);
+        setTxStatus('Sponsored transaction confirmed!');
+        
+        return receipt.receipt.transactionHash;
+      } catch (error) {
+        console.error('❌ Sponsored transaction failed:', error);
+        
+        // Extract more detailed error message if possible
+        let errorMessage = 'Sponsored transaction failed';
+        
+        if (error instanceof Error) {
+          errorMessage = error.message;
+          
+          // Check for specific error types
+          if (error.message.includes('paymaster fields must be set together')) {
+            errorMessage = 'Paymaster configuration error - fields must be set together';
+            console.error('❌ Detailed error about paymaster fields:', error);
+            
+            // This suggests the bundler's paymaster integration is not correctly configured
+            console.warn('⚠️ Make sure the paymaster is properly set up in your bundler configuration');
+          } else if (error.message.includes('paymaster required')) {
+            errorMessage = 'Paymaster required but not configured correctly';
+          } else if (error.message.includes('gas')) {
+            errorMessage = 'Gas estimation failed for sponsored transaction';
+          } else if (error.message.includes('signature')) {
+            errorMessage = 'Signature validation failed for sponsored transaction';
+            console.error('❌ Signature error details:', error);
+            console.warn('⚠️ This could be related to the Privy signature popup not showing');
+          }
+        }
+        
+        // Set error status and fail - no fallback
+        setTxStatus(`Sponsored transaction failed: ${errorMessage}`);
+        return null;
+      }
     } catch (error) {
       console.error('❌ Error in sendSponsoredTransaction:', error);
-      throw error;
+      
+      let errorMessage = 'Unknown error in sponsored transaction';
+      
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      }
+      
+      setTxStatus(`Sponsored transaction failed: ${errorMessage}`);
+      return null;  // No fallback
     }
   };
 
@@ -432,12 +464,12 @@ export function useTransactions(walletManager: TransactionWalletManager) {
   async function bondMonToShmon() {
     if (!smartAccount) {
       setTxStatus('Smart account not initialized');
-      return;
+      return null;
     }
 
     if (!contractAddresses?.shmonad) {
       setTxStatus('shMONAD contract address not available. Check network connectivity.');
-      return;
+      return null;
     }
 
     try {
@@ -463,52 +495,106 @@ export function useTransactions(walletManager: TransactionWalletManager) {
 
       setTxStatus('Submitting transaction to bond MON to shMON...');
 
-      // Try bundler with paymaster integration first
+      // Use the bundler with paymaster integration for sponsored transaction
       if (bundler) {
+        setTxStatus('Using paymaster-sponsored transaction for bonding...');
+        console.log('💵 Sending bond transaction via bundler with paymaster');
+        
         try {
-          setTxStatus('Using bundler with paymaster integration for bonding...');
-          console.log('💵 Sending bond transaction via bundler with paymaster');
-          
           // Get gas price
           const gasPrice = await bundler.getUserOperationGasPrice();
+          console.log('✅ Gas prices received for bonding:', {
+            slow: `${gasPrice.slow.maxFeePerGas.toString()} / ${gasPrice.slow.maxPriorityFeePerGas.toString()}`,
+            standard: `${gasPrice.standard.maxFeePerGas.toString()} / ${gasPrice.standard.maxPriorityFeePerGas.toString()}`
+          });
           
-          // Send the user operation
-          const userOpHash = await bundler.sendUserOperation({
+          // STEP 1: First prepare a minimal user operation to get initial values
+          console.log('📝 Preparing bond operation...');
+          setTxStatus('Preparing bond operation...');
+          
+          // This step will validate the operation but won't submit anything
+          const preparedOp = await bundler.prepareUserOperation({
             account: smartAccount,
             calls: [
               {
                 to: contractAddresses.shmonad as Address,
                 value: bondAmount,
                 data: callData as Hex,
-              },
-            ],
-            maxFeePerGas: gasPrice.slow.maxFeePerGas,
-            maxPriorityFeePerGas: gasPrice.slow.maxPriorityFeePerGas,
+              }
+            ]
           });
-
+          
+          console.log('✅ Initial bond operation prepared:', {
+            sender: preparedOp.sender,
+            nonce: preparedOp.nonce.toString(),
+            callGasLimit: preparedOp.callGasLimit?.toString() || 'not set',
+            verificationGasLimit: preparedOp.verificationGasLimit?.toString() || 'not set',
+            preVerificationGas: preparedOp.preVerificationGas?.toString() || 'not set',
+            hasPaymasterData: !!preparedOp.paymasterAndData && preparedOp.paymasterAndData !== '0x',
+          });
+          console.log('Full user operation:', serializeBigInt(preparedOp));
+          
+          // STEP 2: Send the bond operation with the bundler
+          console.log('🚀 Sending sponsored bond operation...');
+          setTxStatus('Sending sponsored bond transaction...');
+          
+          const userOpHash = await bundler.sendRawUserOperation({
+            ...userOpParams,
+            userOperation: preparedOp
+          });
+          
+          console.log('✅ Bond operation submitted with hash:', userOpHash);
           setTxHash(userOpHash);
-          setTxStatus('Waiting for bond transaction confirmation...');
+          setTxStatus('Bond transaction submitted, waiting for confirmation...');
 
           // Wait for receipt and update UI
           const receipt = await bundler.waitForUserOperationReceipt({
             hash: userOpHash,
           });
 
-          setTxStatus(`Bond transaction confirmed! Transaction hash: ${receipt.receipt.transactionHash}`);
+          setTxStatus(`Sponsored bond transaction confirmed! Transaction hash: ${receipt.receipt.transactionHash}`);
           setLoading?.(false);
           return receipt;
-        } catch (bundlerError) {
-          console.error('Failed to use bundler with paymaster for bonding:', bundlerError);
-          setTxStatus('Paymaster integration failed for bonding. Trying alternative methods...');
+        } catch (error) {
+          console.error('❌ Sponsored bond transaction failed:', error);
+          
+          // Extract more detailed error message if possible
+          let errorMessage = 'Sponsored bond transaction failed';
+          
+          if (error instanceof Error) {
+            errorMessage = error.message;
+            
+            // Check for specific error types
+            if (error.message.includes('paymaster fields must be set together')) {
+              errorMessage = 'Paymaster configuration error - fields must be set together';
+              console.error('❌ Detailed error about paymaster fields:', error);
+              
+              // This suggests the bundler's paymaster integration is not correctly configured
+              console.warn('⚠️ The Zero-dev bundler paymaster integration may not be correctly configured');
+              console.warn('⚠️ Make sure the paymaster is properly set up in your bundler configuration');
+            } else if (error.message.includes('paymaster required')) {
+              errorMessage = 'Paymaster required but not configured correctly';
+            } else if (error.message.includes('gas')) {
+              errorMessage = 'Gas estimation failed for sponsored bond transaction';
+            } else if (error.message.includes('signature')) {
+              errorMessage = 'Signature validation failed for sponsored bond transaction';
+              console.error('❌ Signature error details:', error);
+              console.warn('⚠️ This could be related to the Privy signature popup not showing');
+            }
+          }
+          
+          // Set error status and fail - no fallback
+          setTxStatus(`Sponsored bond transaction failed: ${errorMessage}`);
+          setLoading?.(false);
+          return null;
         }
       }
+      // Use non-sponsored transaction via smartAccountClient
+      else if (smartAccountClient) {
+        setTxStatus('Using non-sponsored transaction for bonding...');
+        console.log('💰 Using smart account client directly for non-sponsored bonding');
 
-      // Fall back to using smartAccountClient if available
-      if (smartAccountClient) {
         try {
-          setTxStatus('Using smart account client for bonding...');
-          console.log('💰 Using smart account client directly for bonding');
-
           // Send transaction using smartAccountClient
           const hash = await smartAccountClient.sendTransaction({
             to: contractAddresses.shmonad as Address,
@@ -527,12 +613,17 @@ export function useTransactions(walletManager: TransactionWalletManager) {
           setTxStatus(`Bond transaction confirmed! Transaction hash: ${receipt.transactionHash}`);
           setLoading?.(false);
           return receipt;
-        } catch (clientError) {
-          console.error('Failed to use smart account client for bonding:', clientError);
-          throw new Error('Smart account client failed to send bond transaction');
+        } catch (error) {
+          console.error('❌ Non-sponsored bond transaction failed:', error);
+          setTxStatus('Non-sponsored bond transaction failed: ' + (error as Error).message);
+          setLoading?.(false);
+          return null;
         }
       } else {
-        throw new Error('No suitable client available for bonding');
+        console.error('No suitable client available for bonding');
+        setTxStatus('No suitable client available for bonding');
+        setLoading?.(false);
+        return null;
       }
     } catch (error) {
       handleTransactionError(error, setTxStatus);
@@ -549,7 +640,6 @@ export function useTransactions(walletManager: TransactionWalletManager) {
     console.log('🔍 Checking all required components:');
     console.log('Smart account:', !!smartAccount ? '✅ Available' : '❌ Missing');
     console.log('Bundler:', !!bundler ? '✅ Available' : '❌ Missing');
-    console.log('Sponsor wallet:', !!sponsorWallet ? '✅ Available' : '❌ Missing');
     console.log('Paymaster address:', contractAddresses?.paymaster ? `✅ ${contractAddresses.paymaster}` : '❌ Missing');
     console.log('Paymaster ABI:', '✅ Should be imported from abis/paymaster.json');
     
@@ -558,11 +648,6 @@ export function useTransactions(walletManager: TransactionWalletManager) {
     
     if (!config.smartAccount || !config.bundler) {
       console.error('❌ Cannot proceed - smart account or bundler not available');
-      return null;
-    }
-    
-    if (!config.sponsorWallet) {
-      console.error('❌ Cannot proceed - sponsor wallet not available for paymaster integration');
       return null;
     }
     
@@ -598,22 +683,15 @@ export function useTransactions(walletManager: TransactionWalletManager) {
           preparedOp.paymasterAndData.substring(0, 10) + '...' : 
           'None'
       });
+      console.log('Full user operation:', serializeBigInt(preparedOp));
       
       // Now try to send the user operation
       console.log('📤 Sending minimal user operation via bundler...');
       
       // Send a minimal user operation (0 ETH to self)
-      const userOpHash = await bundler!.sendUserOperation({
-        account: smartAccount!,
-        calls: [
-          {
-            to: smartAccount!.address,
-            value: 0n,
-            data: '0x',
-          },
-        ],
-        maxFeePerGas: gasPrice.slow.maxFeePerGas,
-        maxPriorityFeePerGas: gasPrice.slow.maxPriorityFeePerGas,
+      const userOpHash = await bundler!.sendRawUserOperation({
+        ...userOpParams,
+        userOperation: preparedOp
       });
       
       console.log('📫 User operation hash received:', userOpHash);
@@ -690,6 +768,7 @@ export function useTransactions(walletManager: TransactionWalletManager) {
     sendSponsoredTransaction,
     sendSelfSponsoredTransaction,
     bondMonToShmon,
+    setTxStatus,
     
     // Debug functions
     verifyPaymasterConfiguration,

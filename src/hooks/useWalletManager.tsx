@@ -12,7 +12,6 @@ import {
   ADDRESS_HUB,
   MONAD_CHAIN,
   RPC_URL,
-  SPONSOR_PRIVATE_KEY,
   SHBUNDLER_URL,
 } from '@/utils/config';
 import {
@@ -25,14 +24,13 @@ import {
   createPublicClient,
   EIP1193Provider,
 } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
 import { initContract } from '@/utils/contracts';
 import addressHubAbi from '@/abis/addressHub.json';
 import paymasterAbi from '@/abis/paymaster.json';
 import shmonadAbi from '@/abis/shmonad.json';
 import { createSmartAccountClient } from 'permissionless';
-import { toSimpleSmartAccount } from 'permissionless/accounts';
-import { createCustomPaymasterClient } from '@/utils/paymaster';
+import { toSafeSmartAccount } from 'permissionless/accounts';
+import { createLocalPaymasterClient } from '@/utils/paymasterClient';
 
 // Define the EntryPoint address
 const entryPoint07Address = ENTRY_POINT_ADDRESS;
@@ -72,7 +70,6 @@ export type WalletManagerState = {
   embeddedWallet: ConnectedWallet | null;
   smartAccount: any | null;
   smartAccountClient: any | null;
-  sponsorWallet: WalletClient | null;
   bundler: ShBundlerClient | null;
   loading: boolean;
   contractAddresses: {
@@ -92,7 +89,6 @@ export function useWalletManager() {
   const [embeddedWallet, setEmbeddedWallet] = useState<ConnectedWallet | null>(null);
   const [smartAccount, setSmartAccount] = useState<any>(null);
   const [smartAccountClient, setSmartAccountClient] = useState<any>(null);
-  const [sponsorWallet, setSponsorWallet] = useState<any>(null);
   const [bundler, setBundler] = useState<ShBundlerClient | null>(null);
   const [loading, setLoading] = useState(false);
   const [contractAddresses, setContractAddresses] = useState({
@@ -133,17 +129,6 @@ export function useWalletManager() {
     }
   }, [wallets]);
 
-  const createSponsorWallet = async () => {
-    const sponsorAccount = privateKeyToAccount(SPONSOR_PRIVATE_KEY as Hex);
-    const sponsorWallet = createWalletClient({
-      account: sponsorAccount,
-      chain: MONAD_CHAIN,
-      transport: http(RPC_URL),
-    });
-
-    return sponsorWallet;
-  };
-
   // Initialize smart account and bundler when embedded wallet is available
   useEffect(() => {
     async function initializeAccount() {
@@ -152,37 +137,19 @@ export function useWalletManager() {
           console.log('🚀 INITIALIZATION STARTED: Initializing smart account with permissionless.js...');
           setLoading(true);
           
-          // Create sponsor wallet first if private key is available
-          let currentSponsorWallet = null;
-          console.log('SPONSOR_PRIVATE_KEY:', SPONSOR_PRIVATE_KEY ? 'defined' : 'undefined');
-          if (SPONSOR_PRIVATE_KEY) {
-            try {
-              console.log('📝 STEP 1: Creating sponsor wallet with private key');
-              currentSponsorWallet = await createSponsorWallet();
-              console.log('✅ STEP 1 COMPLETE: Sponsor wallet created:', currentSponsorWallet.account?.address);
-              setSponsorWallet(currentSponsorWallet);
-            } catch (error) {
-              console.error('❌ STEP 1 FAILED: Failed to create sponsor wallet:', error);
-            }
-          } else {
-            console.warn('⚠️ No SPONSOR_PRIVATE_KEY provided. Sponsored transactions will not work.');
-            // Clear any previously set sponsor wallet
-            setSponsorWallet(null);
-          }
-
           try {
             // Get the Ethereum provider from Privy's embedded wallet
-            console.log('📝 STEP 2: Getting Ethereum provider from Privy wallet...');
+            console.log('📝 STEP 1: Getting Ethereum provider from Privy wallet...');
             const provider = await embeddedWallet.getEthereumProvider();
 
             if (!provider) {
-              console.error('❌ STEP 2 FAILED: No Ethereum provider found from Privy wallet');
+              console.error('❌ STEP 1 FAILED: No Ethereum provider found from Privy wallet');
               throw new Error('No Ethereum provider found from Privy wallet');
             }
-            console.log('✅ STEP 2 COMPLETE: Ethereum provider obtained');
+            console.log('✅ STEP 1 COMPLETE: Ethereum provider obtained');
             
             // Debug the provider to ensure it's working correctly
-            console.log('📝 STEP 2.5: Debugging Ethereum provider...');
+            console.log('📝 STEP 1.5: Debugging Ethereum provider...');
             const providerIsValid = await debugPrivyProvider(provider);
             if (!providerIsValid) {
               console.error('❌ Provider validation failed. The provider may not be functioning correctly.');
@@ -191,16 +158,16 @@ export function useWalletManager() {
               console.log('✅ Provider validation successful!');
             }
 
-            console.log('📝 STEP 3: Creating public client...');
+            console.log('📝 STEP 2: Creating public client...');
             const client = createPublicClient({
               chain: MONAD_CHAIN,
               transport: http(RPC_URL),
             });
-            console.log('✅ STEP 3 COMPLETE: Public client created');
+            console.log('✅ STEP 2 COMPLETE: Public client created');
 
             // Configure ShBundler URL
             const bundlerUrl = SHBUNDLER_URL;
-            console.log('📝 STEP 4: Creating ShBundler client with URL:', bundlerUrl);
+            console.log('📝 STEP 3: Creating ShBundler client with URL:', bundlerUrl);
             const bundlerClient = createShBundlerClient({
               transport: http(bundlerUrl),
               entryPoint: {
@@ -208,42 +175,57 @@ export function useWalletManager() {
                 version: '0.7',
               },
             });
-            console.log('✅ STEP 4 COMPLETE: ShBundler client created');
+            console.log('✅ STEP 3 COMPLETE: ShBundler client created');
 
-            console.log('📝 STEP 5: Creating simple smart account...');
-            // Create a Simple Smart Account - use type assertion to resolve interface mismatch
+            console.log('📝 STEP 4: Creating smart account...');
+            // Create a Safe Smart Account instead of Simple Smart Account
             try {
               console.log('Provider type:', typeof provider, 'Provider value:', provider ? 'exists' : 'null');
               
-              // Log the parameters being passed to toSimpleSmartAccount
-              console.log('🔍 toSimpleSmartAccount params:', {
-                owner: 'provider object',
+              // Log the parameters being passed to toSafeSmartAccount
+              console.log('🔍 toSafeSmartAccount params:', {
                 client: client ? 'public client created' : 'null',
                 entryPoint: {
                   address: entryPoint07Address,
                   version: '0.7'
-                }
+                },
+                owners: ['provider object (EOA)'],
+                version: '1.4.1'
               });
               
               // Wrap this call in a try-catch with detailed error logging
               try {
-                console.log('📋 Calling toSimpleSmartAccount...');
-                const simpleSmartAccount = await toSimpleSmartAccount({
-                  owner: provider as any, // Force TypeScript to accept the provider
+                console.log('📋 Calling toSafeSmartAccount...');
+                // Convert provider to wallet client for owners parameter
+                const accounts = await provider.request({ method: 'eth_accounts' });
+                const EOA = accounts[0] as Address;
+                
+                console.log('📋 Using EOA address as owner:', EOA);
+                
+                // Create a wallet client from the provider
+                const walletClient = createWalletClient({
+                  account: EOA,
+                  chain: MONAD_CHAIN,
+                  transport: custom(provider as EIP1193Provider)
+                });
+                
+                const safeSmartAccount = await toSafeSmartAccount({
                   client,
                   entryPoint: {
                     address: entryPoint07Address as Address,
-                    version: '0.7',
+                    version: "0.7",
                   },
+                  owners: [walletClient],
+                  version: "1.4.1"
                 });
                 
-                console.log('✅ STEP 5 COMPLETE: Simple Smart Account created:', simpleSmartAccount.address);
-                setSmartAccount(simpleSmartAccount);
+                console.log('✅ STEP 4 COMPLETE: Safe Smart Account created:', safeSmartAccount.address);
+                setSmartAccount(safeSmartAccount);
                 
-                console.log('📝 STEP 6: Creating smart account client...');
+                console.log('📝 STEP 5: Creating smart account client...');
                 // Create Smart Account Client using ShBundler
                 const smartAccountClient = createSmartAccountClient({
-                  account: simpleSmartAccount,
+                  account: safeSmartAccount,
                   chain: MONAD_CHAIN,
                   bundlerTransport: http(bundlerUrl),
                   // Get fee data from our ShBundler client
@@ -256,12 +238,12 @@ export function useWalletManager() {
                   }
                 });
                 
-                console.log('✅ STEP 6 COMPLETE: Smart Account client created');
+                console.log('✅ STEP 5 COMPLETE: Smart Account client created');
                 // Store the smart account client for transaction operations
                 setSmartAccountClient(smartAccountClient);
                 
                 try {
-                  console.log('📝 STEP 7: Getting contract addresses from hub...');
+                  console.log('📝 STEP 6: Getting contract addresses from hub...');
                   // Get contract addresses from the hub
                   const addressHubContract = await initContract(
                     ADDRESS_HUB,
@@ -273,77 +255,67 @@ export function useWalletManager() {
                   const paymaster = (await addressHubContract.read.paymaster4337([])) as Address;
                   const shmonad = (await addressHubContract.read.shMonad([])) as Address;
   
-                  console.log('✅ STEP 7 COMPLETE: Contract addresses fetched:', { paymaster, shmonad });
+                  console.log('✅ STEP 6 COMPLETE: Contract addresses fetched:', { paymaster, shmonad });
                   setContractAddresses({
                     paymaster,
                     shmonad,
                   });
                   
-                  // Only now try to setup the bundler with paymaster - using the current sponsor wallet variable
-                  if (currentSponsorWallet && paymaster) {
-                    console.log('📝 STEP 8A: Creating custom paymaster client...');
-                    try {
-                      const paymasterClient = createCustomPaymasterClient({
-                        paymasterAddress: paymaster,
-                        paymasterAbi: paymasterAbi,
-                        sponsorWallet: currentSponsorWallet,
-                      });
-                      
-                      console.log('📝 STEP 8B: Initializing bundler with paymaster...');
-                      const bundlerWithPaymaster = initBundlerWithPaymaster(
-                        simpleSmartAccount,
-                        client,
-                        paymasterClient
-                      );
-                      
-                      // Update the bundler to use the one with paymaster integration
-                      console.log('✅ STEP 8 COMPLETE: Using bundler with paymaster integration');
-                      setBundler(bundlerWithPaymaster);
-                    } catch (paymasterError) {
-                      console.error('❌ Error setting up paymaster:', paymasterError);
-                      console.log('⚠️ Falling back to bundler without paymaster');
-                      // Fall back to the regular bundler without paymaster
-                      const regularBundler = initBundler(simpleSmartAccount, client);
-                      setBundler(regularBundler);
-                    }
-                  } else {
-                    console.log('⚠️ No sponsor wallet or paymaster address available, using bundler without paymaster');
-                    // Use the regular bundler without paymaster
-                    const regularBundler = initBundler(simpleSmartAccount, client);
+                  // Setup the bundler with paymaster using our RPC-based paymaster client
+                  console.log('📝 STEP 7: Creating paymaster client via RPC endpoint...');
+                  try {
+                    // Use the RPC-based paymaster client
+                    const paymasterClient = createLocalPaymasterClient();
+                    
+                    console.log('📝 STEP 7B: Initializing bundler with paymaster...');
+                    const bundlerWithPaymaster = initBundlerWithPaymaster(
+                      safeSmartAccount,
+                      client,
+                      paymasterClient
+                    );
+                    
+                    // Update the bundler to use the one with paymaster integration
+                    console.log('✅ STEP 7 COMPLETE: Using bundler with paymaster integration');
+                    setBundler(bundlerWithPaymaster);
+                  } catch (paymasterError) {
+                    console.error('❌ Error setting up paymaster:', paymasterError);
+                    console.log('⚠️ Falling back to bundler without paymaster');
+                    // Fall back to the regular bundler without paymaster
+                    const regularBundler = initBundler(safeSmartAccount, client);
                     setBundler(regularBundler);
                   }
                   
                   console.log('🎉 INITIALIZATION COMPLETE: Account setup finished successfully');
                 } catch (error) {
-                  console.error('❌ STEP 7/8 FAILED: Error getting contract addresses:', error);
+                  console.error('❌ STEP 6/7 FAILED: Error getting contract addresses:', error);
                   console.log('⚠️ Falling back to regular bundler');
-                  // Fall back to regular bundler
+                  // Fall back to regular bundler without paymaster integration
                   setBundler(bundlerClient);
                 }
-              } catch (smartAccountCreationError) {
-                console.error('💥 ERROR IN toSimpleSmartAccount:', smartAccountCreationError);
+              } catch (safeAccountCreationError) {
+                console.error('💥 ERROR IN toSafeSmartAccount:', safeAccountCreationError);
                 console.error('Detailed error:', 
-                  smartAccountCreationError instanceof Error 
+                  safeAccountCreationError instanceof Error 
                     ? {
-                        message: smartAccountCreationError.message,
-                        name: smartAccountCreationError.name,
-                        stack: smartAccountCreationError.stack?.split('\n').slice(0, 5).join('\n')
+                        message: safeAccountCreationError.message,
+                        name: safeAccountCreationError.name,
+                        stack: safeAccountCreationError.stack?.split('\n').slice(0, 5).join('\n')
                       } 
-                    : String(smartAccountCreationError)
+                    : String(safeAccountCreationError)
                 );
-                throw smartAccountCreationError; // Re-throw to be caught by the outer try-catch
+                throw safeAccountCreationError; // Re-throw to be caught by the outer try-catch
               }
-            } catch (smartAccountError) {
-              console.error('❌ STEP 5 FAILED: Error creating simple account:', smartAccountError);
+            } catch (safeAccountError) {
+              console.error('❌ STEP 4 FAILED: Error creating Safe account:', safeAccountError);
               console.error(
                 'Error details:',
-                smartAccountError instanceof Error
+                safeAccountError instanceof Error
                   ? {
-                      message: smartAccountError.message,
-                      stack: smartAccountError.stack,
-                      name: smartAccountError.name,
+                      message: safeAccountError.message,
+                      stack: safeAccountError.stack,
+                      name: safeAccountError.name,
                     }
-                  : String(smartAccountError)
+                  : String(safeAccountError)
               );
             }
 
@@ -486,7 +458,6 @@ export function useWalletManager() {
     embeddedWallet,
     smartAccount,
     smartAccountClient,
-    sponsorWallet,
     bundler,
     loading,
     setLoading,

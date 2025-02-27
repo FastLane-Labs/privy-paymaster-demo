@@ -1,5 +1,4 @@
-import { Client, getContract, encodeFunctionData, type Address, type Hex } from "viem";
-
+import { Client, getContract, encodeFunctionData, type Address, type Hex } from 'viem';
 
 // Function to initialize a contract with public and account clients
 export async function initContract(
@@ -20,36 +19,34 @@ export async function initContract(
 
 // Function to generate paymaster data based on the mode
 export function paymasterMode(
-  mode: "user" | "sponsor",
+  mode: 'user' | 'sponsor',
   validUntil?: bigint,
   validAfter?: bigint,
   sponsorSignature?: Hex,
   userClient?: Client
 ) {
-  if (mode === "user") {
-    return "0x00" as Hex;
+  if (mode === 'user') {
+    return '0x00' as Hex;
   } else {
     if (userClient === undefined) {
-      throw new Error("userClient is undefined");
+      throw new Error('userClient is undefined');
     }
     if (validUntil === undefined) {
-      throw new Error("validUntil is undefined");
+      throw new Error('validUntil is undefined');
     }
     if (validAfter === undefined) {
-      throw new Error("validAfter is undefined");
+      throw new Error('validAfter is undefined');
     }
     if (sponsorSignature === undefined) {
-      throw new Error("sponsorSignature is undefined");
+      throw new Error('sponsorSignature is undefined');
     }
 
     const accountAddress = userClient?.account?.address;
     if (!accountAddress) {
-      throw new Error("userClient.account is undefined");
+      throw new Error('userClient.account is undefined');
     }
-    return `0x01${accountAddress.slice(2)}${validUntil
+    return `0x01${accountAddress.slice(2)}${validUntil.toString(16).padStart(12, '0')}${validAfter
       .toString(16)
-      .padStart(12, "0")}${validAfter
-      .toString(16)
-      .padStart(12, "0")}${sponsorSignature.slice(2)}`;
+      .padStart(12, '0')}${sponsorSignature.slice(2)}`;
   }
 }

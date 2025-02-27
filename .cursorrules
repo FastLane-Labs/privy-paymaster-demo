@@ -1,0 +1,20 @@
+# Privy Integration with Custom Account Abstraction
+
+This project integrates a custom Account Abstraction infrastructure with Privy's embedded wallet solution.
+
+## Integration Guidelines
+- Privy is used for wallet creation and management
+- ShBundler is used for Account Abstraction and user operations
+- Safe account type is used for the smart account implementation
+- All user operations are sponsored by a custom paymaster
+
+## Important Details
+- The embedded wallet from Privy serves as the base signer for the Safe account
+- Smart account client handles UserOperation creation, gas estimation, and submission
+- Gas fees are covered by the custom paymaster by default
+- EOA signature is generated using Privy's embedded wallet and passed to the Safe account
+
+## Key Components
+- `useWalletManager.tsx`: Initializes the Safe account and client
+- `useTransactions.tsx`: Handles transaction operations using the smart account client
+- The integration follows ERC-4337 specifications for account abstraction 

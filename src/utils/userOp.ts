@@ -1,4 +1,12 @@
-import { Hex, Address, keccak256, concat, encodeAbiParameters, parseAbiParameters, toHex } from 'viem';
+import {
+  Hex,
+  Address,
+  keccak256,
+  concat,
+  encodeAbiParameters,
+  parseAbiParameters,
+  toHex,
+} from 'viem';
 
 /**
  * Represents a packed UserOperation according to ERC-4337 standard
@@ -56,16 +64,22 @@ export function packPaymasterAndData(paymaster: Address, paymasterData: Hex): He
   if (paymaster === '0x0000000000000000000000000000000000000000') {
     return '0x' as Hex;
   }
-  
+
   return concat([paymaster, paymasterData || '0x']) as Hex;
 }
 
 /**
  * Calculate the hash of a UserOperation
  */
-export function getUserOperationHash(userOp: PackedUserOperation, entryPoint: Address, chainId: bigint): Hex {
+export function getUserOperationHash(
+  userOp: PackedUserOperation,
+  entryPoint: Address,
+  chainId: bigint
+): Hex {
   const encoded = encodeAbiParameters(
-    parseAbiParameters('address, uint256, bytes32, bytes32, bytes32, uint256, bytes32, bytes32, bytes32'),
+    parseAbiParameters(
+      'address, uint256, bytes32, bytes32, bytes32, uint256, bytes32, bytes32, bytes32'
+    ),
     [
       userOp.sender,
       userOp.nonce,
@@ -75,19 +89,14 @@ export function getUserOperationHash(userOp: PackedUserOperation, entryPoint: Ad
       userOp.preVerificationGas,
       userOp.gasFees,
       keccak256(userOp.paymasterAndData),
-      toHex(chainId)
+      toHex(chainId),
     ]
   );
-  
+
   const hash = keccak256(encoded);
-  
+
   // The final hash combines the hash with the entryPoint address
-  return keccak256(
-    encodeAbiParameters(
-      parseAbiParameters('bytes32, address'),
-      [hash, entryPoint]
-    )
-  );
+  return keccak256(encodeAbiParameters(parseAbiParameters('bytes32, address'), [hash, entryPoint]));
 }
 
 /**
@@ -103,6 +112,6 @@ export function encodeUserOperationForBundler(userOp: PackedUserOperation): any 
     preVerificationGas: userOp.preVerificationGas.toString(),
     gasFees: userOp.gasFees,
     paymasterAndData: userOp.paymasterAndData,
-    signature: userOp.signature
+    signature: userOp.signature,
   };
 }

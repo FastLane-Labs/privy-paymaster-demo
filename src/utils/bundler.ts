@@ -11,6 +11,7 @@ import {
 } from 'viem/account-abstraction';
 import { http, type Client, type Hex, hexToBigInt, type Transport, type Chain, type Address, type PublicClient } from 'viem';
 import { MONAD_CHAIN, SHBUNDLER_URL, ENTRY_POINT_ADDRESS } from './config';
+import { logger, formatUserOp } from './logger';
 
 // Gas price response types
 interface GasPricesEncoded {
@@ -123,29 +124,29 @@ export function shBundlerActions(): ShBundlerActions {
     },
     verifyPaymasterIntegration: async function(): Promise<boolean> {
       try {
-        console.log('🔍 Verifying paymaster integration...');
+        logger.info('Verifying paymaster integration...');
         
         // First check bundler's gas price functionality
         try {
           const gasPrice = await this.getUserOperationGasPrice();
-          console.log('✅ Bundler gas price API working:', {
+          logger.info('Bundler gas price API working:', {
             maxFeePerGas: gasPrice.standard.maxFeePerGas.toString(),
             maxPriorityFeePerGas: gasPrice.standard.maxPriorityFeePerGas.toString()
           });
         } catch (gasPriceError) {
-          console.error('❌ Bundler gas price API failed:', gasPriceError);
-          console.log('This indicates a possible issue with the bundler connection');
+          logger.error('Bundler gas price API failed:', gasPriceError);
+          logger.info('This indicates a possible issue with the bundler connection');
         }
         
         // Try to prepare a user operation to check if paymaster data is included
-        console.log('Preparing minimal user operation with the bundler...');
+        logger.info('Preparing minimal user operation with the bundler...');
         
         // We need to cast 'this' to BundlerClient to access its methods
         const bundlerClient = this as unknown as BundlerClient;
         const account = bundlerClient.account;
         
         if (!account) {
-          console.error('❌ No account configured in bundler client');
+          logger.error('No account configured in bundler client');
           return false;
         }
         
@@ -158,55 +159,53 @@ export function shBundlerActions(): ShBundlerActions {
           }],
         });
         
-        console.log('✅ User operation prepared:', {
-          sender: userOp.sender,
-          nonce: userOp.nonce.toString(),
-          callData: userOp.callData.substring(0, 10) + '...',
-          signature: userOp.signature ? userOp.signature.substring(0, 10) + '...' : 'None',
-        });
+        // Log formatted user operation with improved signature details
+        logger.info('User operation prepared');
+        logger.debug('User operation details:', formatUserOp(userOp));
         
         // Check if paymasterAndData is present (v0.6) or paymaster and paymasterData (v0.7)
         if (userOp?.paymasterAndData && userOp.paymasterAndData !== '0x') {
-          console.log('✅ PAYMASTER INTEGRATION VERIFIED (v0.6):', userOp.paymasterAndData.substring(0, 66) + '...');
+          logger.info('PAYMASTER INTEGRATION VERIFIED (v0.6):', userOp.paymasterAndData.substring(0, 66) + '...');
           
           // Try to parse the paymaster address from paymasterAndData
           try {
             const paymasterAddress = '0x' + userOp.paymasterAndData.substring(2, 42);
-            console.log('📍 Extracted paymaster address:', paymasterAddress);
+            logger.info('Extracted paymaster address:', paymasterAddress);
           } catch (parseError) {
-            console.warn('⚠️ Could not parse paymaster address from paymasterAndData');
+            logger.warn('Could not parse paymaster address from paymasterAndData');
           }
           
           return true;
         } else if ((userOp as any)?.paymaster && (userOp as any)?.paymasterData) {
-          console.log('✅ PAYMASTER INTEGRATION VERIFIED (v0.7):', {
+          logger.info('PAYMASTER INTEGRATION VERIFIED (v0.7):', {
             paymaster: (userOp as any).paymaster,
             paymasterData: (userOp as any).paymasterData.substring(0, 10) + '...'
           });
           return true;
         } else {
-          console.warn('⚠️ Paymaster integration NOT verified - no paymaster data in user operation');
+          logger.warn('Paymaster integration NOT verified - no paymaster data in user operation');
           
           // Try to diagnose why paymaster data is missing
-          console.log('🔍 Diagnosing paymaster integration issues:');
-          console.log('1. Checking bundler configuration...');
-          console.log('   - Bundler URL:', SHBUNDLER_URL);
-          console.log('   - Entry Point:', ENTRY_POINT_ADDRESS);
-          console.log('   - Chain ID:', MONAD_CHAIN.id);
+          logger.info('Diagnosing paymaster integration issues:');
+          logger.debug('Bundler configuration:', {
+            bundlerUrl: SHBUNDLER_URL,
+            entryPoint: ENTRY_POINT_ADDRESS,
+            chainId: MONAD_CHAIN.id
+          });
           
           return false;
         }
       } catch (error) {
-        console.error('❌ Error verifying paymaster integration:', error);
+        logger.error('Error verifying paymaster integration:', error);
         
         // Provide more context based on the error
         if (error instanceof Error) {
           if (error.message.includes('paymaster')) {
-            console.error('This appears to be a paymaster-specific error.');
+            logger.error('This appears to be a paymaster-specific error.');
           } else if (error.message.includes('gas')) {
-            console.error('This appears to be a gas estimation error.');
+            logger.error('This appears to be a gas estimation error.');
           } else if (error.message.includes('account') || error.message.includes('sender')) {
-            console.error('This appears to be an account initialization error.');
+            logger.error('This appears to be an account initialization error.');
           }
         }
         
@@ -239,7 +238,7 @@ export function createShBundlerClient(
     paymaster
   } = config;
 
-  console.log('🚀 Creating ShBundlerClient', paymaster ? 'with paymaster' : 'without paymaster');
+  logger.info('Creating ShBundlerClient', paymaster ? 'with paymaster' : 'without paymaster');
   
   // Log entry point info
   let entryPointAddress = entryPoint?.address;
@@ -254,10 +253,10 @@ export function createShBundlerClient(
   
   const entryPointVersion = entryPoint?.version || "0.7";
   
-  console.log(`📋 Using EntryPoint ${entryPointVersion} at address ${entryPointAddress}`);
+  logger.info(`Using EntryPoint ${entryPointVersion} at address ${entryPointAddress}`);
   
   if (paymaster) {
-    console.log('📦 Paymaster integration enabled');
+    logger.info('Paymaster integration enabled');
   }
   
   // Create bundler client with the correct configuration
@@ -289,7 +288,7 @@ export function initBundler<
   publicClient: Client,
   version: entryPointVersion = "0.7" as entryPointVersion
 ): ShBundlerClient<entryPointVersion> {
-  console.log(`🔄 Creating regular ShBundlerClient with EntryPoint v${version}`);
+  logger.info(`Creating regular ShBundlerClient with EntryPoint v${version}`);
   
   // Determine entry point address based on version string
   let entryPointAddress: Address;
@@ -320,7 +319,7 @@ export function initBundlerWithPaymaster<
   paymasterClient: any,
   version: entryPointVersion = "0.7" as entryPointVersion
 ): ShBundlerClient<entryPointVersion> {
-  console.log(`🚀 Creating ShBundlerClient with paymaster (EntryPoint v${version})`);
+  logger.info(`Creating ShBundlerClient with paymaster (EntryPoint v${version})`);
   
   // Determine entry point address based on version string
   let entryPointAddress: Address;
@@ -330,8 +329,10 @@ export function initBundlerWithPaymaster<
     entryPointAddress = entryPoint07Address;
   }
   
-  console.log('📌 Entry point address:', entryPointAddress);
-  console.log('📌 Chain ID:', MONAD_CHAIN.id);
+  logger.debug('Bundler configuration details:', {
+    entryPointAddress: entryPointAddress,
+    chainId: MONAD_CHAIN.id
+  });
   
   // Create a configured bundler client with paymaster
   return createShBundlerClient({
@@ -345,7 +346,7 @@ export function initBundlerWithPaymaster<
     },
     paymaster: {
       getPaymasterData: async (userOperation: GetPaymasterDataParameters) => {
-        console.log('📬 Bundler requesting paymaster data', {
+        logger.debug('Bundler requesting paymaster data', {
           sender: userOperation.sender,
           nonce: userOperation.nonce ? userOperation.nonce.toString() : 'undefined',
           callData: userOperation.callData ? userOperation.callData.substring(0, 10) + '...' : 'undefined',
@@ -360,11 +361,11 @@ export function initBundlerWithPaymaster<
           });
           
           // Log the complete result structure for debugging
-          console.log('🔍 Raw paymaster result structure:', JSON.stringify(result, null, 2));
+          logger.debug('Raw paymaster result structure:', JSON.stringify(result, null, 2));
           
           // Log the result for debugging
           if (result?.paymasterAndData) {
-            console.log('✅ Paymaster data received (v0.6 format):', {
+            logger.info('Paymaster data received (v0.6 format):', {
               paymaster: `0x${result.paymasterAndData.substring(2, 42)}`,
               dataLength: result.paymasterAndData.length,
               prefix: result.paymasterAndData.substring(0, 66) + '...',
@@ -373,23 +374,22 @@ export function initBundlerWithPaymaster<
             // Validate the paymaster address
             const extractedPaymaster = `0x${result.paymasterAndData.substring(2, 42)}`;
             if (extractedPaymaster === '0x0000000000000000000000000000000000000000') {
-              console.warn('⚠️ Invalid zero address detected in paymasterAndData!');
+              logger.warn('Invalid zero address detected in paymasterAndData!');
             }
           } else if (result?.paymaster && result?.paymasterData) {
             // For v0.7 format, validate the paymaster address
             if (result.paymaster === '0x0000000000000000000000000000000000000000') {
-              console.warn('⚠️ Invalid zero address detected for paymaster!');
+              logger.warn('Invalid zero address detected for paymaster!');
             }
             
-            console.log('✅ Paymaster data received (v0.7 format):', {
+            logger.info('Paymaster data received (v0.7 format):', {
               paymaster: result.paymaster,
-              paymasterData: result.paymasterData, // Log the full data for debugging
               dataLength: result.paymasterData.length,
               prefix: result.paymasterData.substring(0, 10) + '...',
             });
             
             // Additional validation for other fields
-            console.log('📋 Additional v0.7 fields:', {
+            logger.debug('Additional v0.7 fields:', {
               isFinal: result.isFinal !== undefined ? result.isFinal : 'not set',
               verificationGasLimit: result.verificationGasLimit || 'not set',
               callGasLimit: result.callGasLimit || 'not set',
@@ -397,13 +397,13 @@ export function initBundlerWithPaymaster<
               sponsor: result.sponsor ? 'present' : 'not set'
             });
           } else {
-            console.warn('⚠️ No paymaster data returned from paymasterClient');
-            console.log('📋 Response structure:', Object.keys(result || {}).join(', '));
+            logger.warn('No paymaster data returned from paymasterClient');
+            logger.debug('Response structure:', Object.keys(result || {}).join(', '));
           }
           
           return result;
         } catch (error) {
-          console.error('❌ Error getting paymaster data:', error);
+          logger.error('Error getting paymaster data:', error);
           // Rethrow the error to be handled by the bundler
           throw error;
         }

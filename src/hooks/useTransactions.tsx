@@ -7,6 +7,7 @@ import { WalletManagerState } from './useWalletManager';
 import { ShBundlerClient } from '@/utils/bundler';
 import { isAddress } from 'viem';
 import { UserOperation } from 'viem/account-abstraction';
+import { logger } from '../utils/logger';
 
 // Helper function to serialize BigInt values for logging
 function serializeBigInt(obj: any): any {
@@ -258,13 +259,13 @@ export function useTransactions(walletManager: TransactionWalletManager) {
   // Send a transaction sponsored by the paymaster
   const sendSponsoredTransaction = async (to: string, amount: string) => {
     try {
-      console.log('📱 Starting sponsored transaction flow...');
-      console.log('📬 Recipient address received:', to);
+      logger.info('Starting sponsored transaction flow');
+      logger.debug('Recipient address received', to);
       setTxStatus('Preparing transaction...');
       
       // Validate inputs
       if (!smartAccount || !bundler) {
-        console.error('❌ Smart account or bundler not initialized');
+        logger.error('Smart account or bundler not initialized');
         setTxStatus('Smart account or bundler not initialized');
         return null;
       }
@@ -277,37 +278,33 @@ export function useTransactions(walletManager: TransactionWalletManager) {
       let targetAddress: Address;
       if (to && isAddress(to)) {
         targetAddress = to as Address;
-        console.log('✅ Using provided recipient address:', targetAddress);
+        logger.debug('Using provided recipient address', targetAddress);
       } else {
         targetAddress = smartAccount.address;
-        console.log('⚠️ Invalid or empty recipient address. Using smart account address as fallback:', targetAddress);
+        logger.warn('Invalid or empty recipient address, using smart account address as fallback', targetAddress);
       }
 
       // Convert amount from ETH to wei
       let amountWei: bigint;
       try {
         amountWei = parseEther(amount);
-        console.log('💰 Amount in wei:', amountWei.toString());
+        logger.debug('Amount in wei', amountWei.toString());
       } catch (error) {
-        console.error('❌ Invalid amount:', amount);
+        logger.error('Invalid amount', amount);
         setTxStatus('Invalid amount');
         return null;
       }
       
       // Get gas prices from the bundler
-      console.log('⛽ Getting gas prices...');
+      logger.info('Getting gas prices...');
       setTxStatus('Getting gas prices...');
       
       const gasPrice = await bundler.getUserOperationGasPrice();
-      console.log('✅ Gas prices received:', {
-        slow: `${gasPrice.slow.maxFeePerGas.toString()} / ${gasPrice.slow.maxPriorityFeePerGas.toString()}`,
-        standard: `${gasPrice.standard.maxFeePerGas.toString()} / ${gasPrice.standard.maxPriorityFeePerGas.toString()}`,
-        fast: `${gasPrice.fast.maxFeePerGas.toString()} / ${gasPrice.fast.maxPriorityFeePerGas.toString()}`
-      });
+      logger.gasPrice('Gas prices received', gasPrice);
       
       try {
         // STEP 1: Prepare the user operation
-        console.log('🔄 Preparing and signing user operation...');
+        logger.info('Preparing and signing user operation...');
         setTxStatus('Preparing and signing user operation...');
         
         // First create the user operation but don't send it
@@ -326,25 +323,18 @@ export function useTransactions(walletManager: TransactionWalletManager) {
           paymasterPostOpGasLimit,
         });
         
-        console.log('✅ User operation prepared:', {
-          sender: userOperation.sender,
-          nonce: userOperation.nonce.toString(),
-          callGasLimit: userOperation.callGasLimit?.toString() || 'not set',
-          verificationGasLimit: userOperation.verificationGasLimit?.toString() || 'not set',
-          preVerificationGas: userOperation.preVerificationGas?.toString() || 'not set',
-          hasPaymasterData: !!userOperation.paymasterAndData && userOperation.paymasterAndData !== '0x',
-        });
+        logger.userOp('User operation prepared', userOperation);
         
         // STEP 2: Explicitly sign the user operation
-        console.log('✍️ Explicitly signing the user operation with smart account owner...');
+        logger.info('Explicitly signing the user operation with smart account owner...');
         const signature = await smartAccount.signUserOperation(userOperation);
         
         // Update the signature in the user operation
         userOperation.signature = signature;
-        console.log('✅ User operation signed with signature:', signature.substring(0, 10) + '...');
+        logger.debug('User operation signed with signature', signature.substring(0, 10) + '...');
         
         // STEP 3: Send the signed user operation
-        console.log('📤 Submitting signed user operation...');
+        logger.info('Submitting signed user operation...');
         setTxStatus('Submitting signed transaction...');
         
         // We must create a new sendUserOperation call with the account parameter
@@ -352,17 +342,17 @@ export function useTransactions(walletManager: TransactionWalletManager) {
         // but not for signing (since we already signed the operation)
         const userOpHash = await bundler.sendUserOperation(userOperation as UserOperation);
         
-        console.log('✅ Sponsored transaction submitted with hash:', userOpHash);
+        logger.info('Sponsored transaction submitted with hash', userOpHash);
         setTxStatus('Transaction submitted, waiting for confirmation...');
         
         // Wait for receipt
         const receipt = await bundler.waitForUserOperationReceipt({ hash: userOpHash });
-        console.log('✅ Sponsored transaction confirmed! Hash:', receipt.receipt.transactionHash);
+        logger.info('Sponsored transaction confirmed! Hash', receipt.receipt.transactionHash);
         setTxStatus('Sponsored transaction confirmed!');
         
         return receipt.receipt.transactionHash;
       } catch (error) {
-        console.error('❌ Sponsored transaction failed:', error);
+        logger.error('Sponsored transaction failed', error);
         
         // Extract more detailed error message if possible
         let errorMessage = 'Sponsored transaction failed';
@@ -373,18 +363,18 @@ export function useTransactions(walletManager: TransactionWalletManager) {
           // Check for specific error types
           if (error.message.includes('paymaster fields must be set together')) {
             errorMessage = 'Paymaster configuration error - fields must be set together';
-            console.error('❌ Detailed error about paymaster fields:', error);
+            logger.error('Detailed error about paymaster fields', error);
             
             // This suggests the bundler's paymaster integration is not correctly configured
-            console.warn('⚠️ Make sure the paymaster is properly set up in your bundler configuration');
+            logger.warn('Make sure the paymaster is properly set up in your bundler configuration');
           } else if (error.message.includes('paymaster required')) {
             errorMessage = 'Paymaster required but not configured correctly';
           } else if (error.message.includes('gas')) {
             errorMessage = 'Gas estimation failed for sponsored transaction';
           } else if (error.message.includes('signature')) {
             errorMessage = 'Signature validation failed for sponsored transaction';
-            console.error('❌ Signature error details:', error);
-            console.warn('⚠️ This could be related to the Privy signature popup not showing');
+            logger.error('Signature error details', error);
+            logger.warn('This could be related to the Privy signature popup not showing');
           }
         }
         
@@ -393,7 +383,7 @@ export function useTransactions(walletManager: TransactionWalletManager) {
         return null;
       }
     } catch (error) {
-      console.error('❌ Error in sendSponsoredTransaction:', error);
+      logger.error('Error in sendSponsoredTransaction', error);
       
       let errorMessage = 'Unknown error in sponsored transaction';
       
@@ -401,8 +391,7 @@ export function useTransactions(walletManager: TransactionWalletManager) {
         errorMessage = error.message;
       }
       
-      setTxStatus(`Sponsored transaction failed: ${errorMessage}`);
-      return null;  // No fallback
+      setTxStatus(`Error: ${errorMessage}`);
     }
   };
 
@@ -535,15 +524,12 @@ export function useTransactions(walletManager: TransactionWalletManager) {
           console.log('Full user operation:', serializeBigInt(preparedOp));
           
           // STEP 2: Send the bond operation with the bundler
-          console.log('🚀 Sending sponsored bond operation...');
+          logger.info('Sending sponsored bond operation...');
           setTxStatus('Sending sponsored bond transaction...');
           
-          const userOpHash = await bundler.sendRawUserOperation({
-            ...userOpParams,
-            userOperation: preparedOp
-          });
+          const userOpHash = await bundler.sendUserOperation(preparedOp as UserOperation);
           
-          console.log('✅ Bond operation submitted with hash:', userOpHash);
+          logger.info('Bond operation submitted with hash', userOpHash);
           setTxHash(userOpHash);
           setTxStatus('Bond transaction submitted, waiting for confirmation...');
 
@@ -686,42 +672,38 @@ export function useTransactions(walletManager: TransactionWalletManager) {
       console.log('Full user operation:', serializeBigInt(preparedOp));
       
       // Now try to send the user operation
-      console.log('📤 Sending minimal user operation via bundler...');
+      logger.info('Sending minimal user operation via bundler...');
       
-      // Send a minimal user operation (0 ETH to self)
-      const userOpHash = await bundler!.sendRawUserOperation({
-        ...userOpParams,
-        userOperation: preparedOp
-      });
+      // Send the prepared user operation
+      const userOpHash = await bundler!.sendUserOperation(preparedOp as UserOperation);
       
-      console.log('📫 User operation hash received:', userOpHash);
+      logger.info('User operation hash received', userOpHash);
       
       // Wait for the transaction to be confirmed
-      console.log('⏳ Waiting for transaction confirmation...');
+      logger.info('Waiting for transaction confirmation...');
       const receipt = await bundler!.waitForUserOperationReceipt({ hash: userOpHash });
       
-      console.log('✅ Transaction confirmed! Hash:', receipt.receipt.transactionHash);
+      logger.info('Transaction confirmed! Hash', receipt.receipt.transactionHash);
       return receipt.receipt.transactionHash;
     } catch (error) {
-      console.error('❌ Error in debug user operation:', error);
+      logger.error('Error in debug user operation', error);
       
       // Try to extract more details about the error
       if (error instanceof Error) {
-        console.error('Error message:', error.message);
+        logger.error('Error message', error.message);
         
         if (error.message.includes('paymaster') || error.message.includes('AA31')) {
-          console.error('⚠️ Paymaster-related error detected!');
-          console.error('This may indicate an issue with the paymaster integration.');
+          logger.error('Paymaster-related error detected!');
         }
         
         if (error.message.includes('initCode')) {
-          console.error('⚠️ InitCode-related error detected!');
-          console.error('This may indicate an issue with the smart account initialization.');
+          logger.error('⚠️ InitCode-related error detected!');
+          logger.error('This may indicate an issue with the smart account initialization.');
         }
         
         if (error.message.includes('sender')) {
-          console.error('⚠️ Sender-related error detected!');
-          console.error('This may indicate an issue with the smart account address.');
+          logger.error('⚠️ Sender-related error detected!');
+          logger.error('This may indicate an issue with the smart account address.');
         }
       }
       

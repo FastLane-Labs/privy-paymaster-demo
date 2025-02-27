@@ -8,6 +8,7 @@ import paymasterAbi from '../../abis/paymaster.json';
 import addressHubAbi from '../../abis/addressHub.json';
 import { monadTestnet } from 'viem/chains';
 import { entryPoint07Address } from 'viem/account-abstraction';
+import { logger } from '../../utils/logger';
 
 // Initialization state tracking
 let PAYMASTER_INITIALIZING = false;
@@ -21,8 +22,8 @@ const STUB_PAYMASTER_ADDRESS = '0x2222222222222222222222222222222200000456' as A
 
 // Use a backend-specific RPC URL (not prefixed with NEXT_PUBLIC_)
 const BACKEND_RPC_URL = process.env.RPC_URL || 'https://rpc.ankr.com/monad_testnet';
-console.log('🌐 Backend using RPC URL:', BACKEND_RPC_URL);
-console.log('Environment variables available:', {
+logger.info('Backend using RPC URL', BACKEND_RPC_URL);
+logger.debug('Environment variables available', {
   RPC_URL: process.env.RPC_URL ? 'defined' : 'undefined',
   SPONSOR_WALLET_PRIVATE_KEY: process.env.SPONSOR_WALLET_PRIVATE_KEY ? 'defined' : 'undefined',
   NODE_ENV: process.env.NODE_ENV
@@ -30,9 +31,9 @@ console.log('Environment variables available:', {
 
 const SPONSOR_PRIVATE_KEY = process.env.SPONSOR_WALLET_PRIVATE_KEY;
 if (!SPONSOR_PRIVATE_KEY) {
-  console.error('❌ SPONSOR_WALLET_PRIVATE_KEY environment variable is not set.');
-  console.error('   Please add it to your .env.local file or set it in your environment.');
-  console.error('   This is required for the paymaster to work properly.');
+  logger.error('SPONSOR_WALLET_PRIVATE_KEY environment variable is not set');
+  logger.error('Please add it to your .env.local file or set it in your environment');
+  logger.error('This is required for the paymaster to work properly');
 }
 
 // Define the paymaster address - retrieved from the address hub contract
@@ -60,12 +61,12 @@ const sponsorWallet = sponsorAccount
 // Initialize the address hub contract and get the paymaster address
 async function initializePaymaster() {
   if (PAYMASTER_INITIALIZING) {
-    console.log('⏳ Paymaster already initializing, skipping duplicate initialization');
+    logger.info('Paymaster already initializing, skipping duplicate initialization');
     return; // Already initializing
   }
   
   if (PAYMASTER_ADDRESS) {
-    console.log('✅ Paymaster already initialized:', PAYMASTER_ADDRESS);
+    logger.info('Paymaster already initialized', PAYMASTER_ADDRESS);
     return; // Already initialized
   }
   
@@ -73,9 +74,11 @@ async function initializePaymaster() {
   INITIALIZATION_ATTEMPTS++;
   
   try {
-    console.log(`📡 Initializing Address Hub contract to get paymaster address... (attempt ${INITIALIZATION_ATTEMPTS}/${MAX_INITIALIZATION_ATTEMPTS})`);
-    console.log('    Address Hub address:', ADDRESS_HUB);
-    console.log('    RPC URL:', BACKEND_RPC_URL);
+    logger.info(`Initializing Address Hub contract to get paymaster address (attempt ${INITIALIZATION_ATTEMPTS}/${MAX_INITIALIZATION_ATTEMPTS})`);
+    logger.debug('Initialization details', {
+      addressHub: ADDRESS_HUB,
+      rpcUrl: BACKEND_RPC_URL
+    });
     
     if (!ADDRESS_HUB) {
       throw new Error('ADDRESS_HUB is not defined. Please check your environment variables.');
@@ -86,7 +89,10 @@ async function initializePaymaster() {
     }
     
     // Log some details about the backend client to help diagnose issues
-    console.log('🔄 Creating backend public client for chain:', monadTestnet.name, monadTestnet.id);
+    logger.debug('Creating backend public client for chain', {
+      name: monadTestnet.name,
+      id: monadTestnet.id
+    });
     
     // Create the address hub contract instance
     const addressHubContract = await initContract(
@@ -99,12 +105,12 @@ async function initializePaymaster() {
       throw new Error('Failed to initialize Address Hub contract');
     }
     
-    console.log('✅ Address Hub contract initialized successfully');
+    logger.info('Address Hub contract initialized successfully');
     
     // Read the paymaster address from the contract
-    console.log('📡 Reading paymaster address from AddressHub contract...');
+    logger.info('Reading paymaster address from AddressHub contract...');
     const paymasterAddress = (await addressHubContract.read.paymaster4337([])) as Address;
-    console.log('📝 Raw paymaster address received:', paymasterAddress);
+    logger.debug('Raw paymaster address received', paymasterAddress);
     
     // Validate the paymaster address
     if (!paymasterAddress) {
@@ -115,13 +121,13 @@ async function initializePaymaster() {
       throw new Error('Zero address returned as paymaster address from AddressHub. This indicates the AddressHub contract may not be properly configured.');
     }
     
-    console.log('✅ Got valid paymaster address:', paymasterAddress);
+    logger.info('Got valid paymaster address', paymasterAddress);
     
     // Store the address globally
     PAYMASTER_ADDRESS = paymasterAddress;
     
     // Initialize the paymaster contract for faster access later
-    console.log('📡 Initializing paymaster contract...');
+    logger.info('Initializing paymaster contract...');
     const paymasterContract = await initContract(
       PAYMASTER_ADDRESS as Address,
       paymasterAbi,
@@ -134,35 +140,35 @@ async function initializePaymaster() {
     
     // Try to read something from the paymaster contract to verify it works
     try {
-      console.log('🔍 Verifying paymaster contract by reading from it...');
+      logger.debug('Verifying paymaster contract by reading from it...');
       const owner = await paymasterContract.read.owner([]);
-      console.log('✅ Paymaster contract verified, owner:', owner);
+      logger.info('Paymaster contract verified, owner', owner);
     } catch (readError) {
-      console.warn('⚠️ Could not read from paymaster contract, but proceeding anyway:', readError);
+      logger.warn('Could not read from paymaster contract, but proceeding anyway', readError);
     }
     
-    console.log('✅ Successfully initialized both Address Hub and Paymaster contracts');
+    logger.info('Successfully initialized both Address Hub and Paymaster contracts');
     INITIALIZATION_ERROR = null;
   } catch (error) {
-    console.error('❌ Error initializing paymaster:', error);
+    logger.error('Error initializing paymaster', error);
     INITIALIZATION_ERROR = error as Error;
     
     // If we haven't exceeded max attempts, schedule a retry
     if (INITIALIZATION_ATTEMPTS < MAX_INITIALIZATION_ATTEMPTS) {
-      console.log(`⏱️ Scheduling retry in ${INITIALIZATION_ATTEMPTS * 2} seconds...`);
+      logger.info(`Scheduling retry in ${INITIALIZATION_ATTEMPTS * 2} seconds...`);
       setTimeout(() => {
         PAYMASTER_INITIALIZING = false; // Reset flag to allow retry
         initializePaymaster(); // Retry initialization
       }, INITIALIZATION_ATTEMPTS * 2000); // Exponential backoff
     } else {
-      console.error(`❌ Failed to initialize paymaster after ${MAX_INITIALIZATION_ATTEMPTS} attempts.`);
-      console.error('🔍 Last error:', INITIALIZATION_ERROR.message);
-      console.error('💡 Check your ADDRESS_HUB environment variable and make sure the contract is deployed correctly.');
-      console.error('💡 Check your SPONSOR_WALLET_PRIVATE_KEY environment variable is correct.');
+      logger.error(`Failed to initialize paymaster after ${MAX_INITIALIZATION_ATTEMPTS} attempts.`);
+      logger.error('Last error:', INITIALIZATION_ERROR.message);
+      logger.error('Check your ADDRESS_HUB environment variable and make sure the contract is deployed correctly.');
+      logger.error('Check your SPONSOR_WALLET_PRIVATE_KEY environment variable is correct.');
       
       // Force a refresh after a longer timeout
       setTimeout(() => {
-        console.log('🔄 Forcing paymaster initialization refresh after timeout...');
+        logger.info('Forcing paymaster initialization refresh after timeout...');
         PAYMASTER_INITIALIZING = false;
         INITIALIZATION_ATTEMPTS = 0;
         initializePaymaster();
@@ -171,12 +177,12 @@ async function initializePaymaster() {
   } finally {
     // Even if we fail, reset the initializing flag to allow retries
     if (PAYMASTER_ADDRESS) {
-      console.log('✅ Paymaster initialization successful, address:', PAYMASTER_ADDRESS);
+      logger.info('Paymaster initialization successful, address:', PAYMASTER_ADDRESS);
       PAYMASTER_INITIALIZING = false; // Only reset if successful
     } else {
       // Reset after a delay to prevent too frequent retries
       setTimeout(() => {
-        console.log('⏱️ Resetting PAYMASTER_INITIALIZING flag after timeout');
+        logger.info('Resetting PAYMASTER_INITIALIZING flag after timeout');
         PAYMASTER_INITIALIZING = false;
       }, 5000);
     }
@@ -189,7 +195,7 @@ initializePaymaster();
 setInterval(() => {
   // Only try to refresh if not currently initializing and either not initialized or previously errored
   if (!PAYMASTER_INITIALIZING && (!PAYMASTER_ADDRESS || INITIALIZATION_ERROR)) {
-    console.log('🔄 Attempting periodic refresh of paymaster address...');
+    logger.info('Attempting periodic refresh of paymaster address...');
     INITIALIZATION_ATTEMPTS = 0; // Reset attempt counter for refresh
     initializePaymaster();
   }
@@ -208,7 +214,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const { jsonrpc, id, method, params } = req.body;
 
     // Log the incoming request
-    console.log(`📡 Received RPC request for method: ${method}`);
+    logger.info(`Received RPC request for method: ${method}`);
 
     // Validate the JSON-RPC request
     if (jsonrpc !== '2.0' || !id || !method) {
@@ -221,7 +227,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     // Try to initialize paymaster if not already initialized
     if (!PAYMASTER_ADDRESS && !PAYMASTER_INITIALIZING) {
-      console.log('🔄 Paymaster not initialized yet, attempting initialization...');
+      logger.info('Paymaster not initialized yet, attempting initialization...');
       await initializePaymaster();
     }
 
@@ -241,7 +247,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         });
     }
   } catch (error) {
-    console.error('❌ RPC handler error:', error);
+    logger.error('RPC handler error:', error);
     return res.status(500).json({
       jsonrpc: '2.0',
       id: req.body?.id || null,
@@ -264,7 +270,7 @@ async function handleGetPaymasterData(req: NextApiRequest, res: NextApiResponse)
     const hotPathRpcUrl = process.env.RPC_URL || BACKEND_RPC_URL;
     const hotPathAddressHub = process.env.ADDRESS_HUB || ADDRESS_HUB;
     
-    console.log('🌡️ Hot path environment check:', {
+    logger.debug('Hot path environment check', {
       SPONSOR_KEY: hotPathPrivateKey ? 'defined' : 'undefined',
       RPC_URL: hotPathRpcUrl ? 'defined' : 'undefined',
       ADDRESS_HUB: hotPathAddressHub ? 'defined' : 'undefined'
@@ -273,9 +279,9 @@ async function handleGetPaymasterData(req: NextApiRequest, res: NextApiResponse)
     // Extract parameters
     const [userOperation, entryPointAddress, chainId, context] = params;
     
-    console.log('🎯 Processing paymaster data request for sender:', userOperation.sender);
-    console.log('⏱️ Request received at:', new Date().toISOString());
-    console.log('📄 User operation details:', {
+    logger.info('Processing paymaster data request for sender:', userOperation.sender);
+    logger.info('Request received at:', new Date().toISOString());
+    logger.debug('User operation details', {
       sender: userOperation.sender,
       nonce: userOperation.nonce ? BigInt(userOperation.nonce).toString() : 'undefined',
       callData: userOperation.callData?.substring(0, 10) + '...' || 'undefined',
@@ -286,7 +292,7 @@ async function handleGetPaymasterData(req: NextApiRequest, res: NextApiResponse)
     // Detect EntryPoint version based on the address
     // Match the entryPointAddress with the entryPoint07Address
     const isEntryPointV07 = entryPointAddress == entryPoint07Address;
-    console.log(`🔍 Detected EntryPoint version: ${isEntryPointV07 ? 'v0.7' : 'v0.6'}`);
+    logger.info(`Detected EntryPoint version: ${isEntryPointV07 ? 'v0.7' : 'v0.6'}`);
     
     // QUICK VALIDATION - must respond fast to avoid timeouts
     if (!userOperation || !userOperation.sender || !entryPointAddress || !chainId) {
@@ -306,7 +312,7 @@ async function handleGetPaymasterData(req: NextApiRequest, res: NextApiResponse)
     let dynamicSponsorWallet = sponsorWallet;
     
     if (hotPathPrivateKey && !dynamicSponsorAccount) {
-      console.log('🔥 Creating sponsor account on hot path with fresh private key');
+      logger.info('Creating sponsor account on hot path with fresh private key');
       try {
         dynamicSponsorAccount = privateKeyToAccount(hotPathPrivateKey as Hex);
         dynamicSponsorWallet = createWalletClient({
@@ -314,9 +320,9 @@ async function handleGetPaymasterData(req: NextApiRequest, res: NextApiResponse)
           chain: monadTestnet,
           transport: http(hotPathRpcUrl)
         });
-        console.log('✅ Successfully created sponsor wallet on hot path');
+        logger.info('Successfully created sponsor wallet on hot path');
       } catch (walletError) {
-        console.error('❌ Failed to create sponsor wallet on hot path:', walletError);
+        logger.error('Failed to create sponsor wallet on hot path:', walletError);
       }
     }
     
@@ -324,7 +330,7 @@ async function handleGetPaymasterData(req: NextApiRequest, res: NextApiResponse)
     if (!PAYMASTER_ADDRESS && !PAYMASTER_INITIALIZING) {
       // If we have hot path values that differ from globals, update globals
       if (hotPathPrivateKey && hotPathPrivateKey !== SPONSOR_PRIVATE_KEY) {
-        console.log('🔄 Updating sponsor private key from hot path value');
+        logger.info('Updating sponsor private key from hot path value');
         // We can't modify the const, but we can log that we detected a change
       }
       
@@ -339,8 +345,8 @@ async function handleGetPaymasterData(req: NextApiRequest, res: NextApiResponse)
     // We need either a paymaster address or a wallet to proceed
     if (!PAYMASTER_ADDRESS && (!activeWallet || !activeAccount)) {
       // If we have neither paymaster address nor wallet, that's a critical error
-      console.error('❌ Critical error: No paymaster address AND no sponsor wallet available');
-      console.error('   Hot path environment check:', {
+      logger.error('Critical error: No paymaster address AND no sponsor wallet available');
+      logger.debug('Hot path environment check', {
         SPONSOR_KEY: hotPathPrivateKey ? 'defined' : 'undefined',
         ADDRESS_HUB: hotPathAddressHub ? 'defined' : 'undefined',
         RPC_URL: hotPathRpcUrl ? 'defined' : 'undefined'
@@ -389,7 +395,7 @@ async function handleGetPaymasterData(req: NextApiRequest, res: NextApiResponse)
       
       if (onDemandAddress) {
         effectivePaymasterAddress = onDemandAddress;
-        console.log('✅ Successfully read paymaster address on demand:', effectivePaymasterAddress);
+        logger.info('Successfully read paymaster address on demand:', effectivePaymasterAddress);
         
         // Store it for future use
         PAYMASTER_ADDRESS = effectivePaymasterAddress;
@@ -400,7 +406,7 @@ async function handleGetPaymasterData(req: NextApiRequest, res: NextApiResponse)
     // If we still don't have a paymaster address but we have a wallet, we can't proceed with real data
     // We need to return an error - we don't want to use dummy addresses for actual signed operations
     if (!effectivePaymasterAddress) {
-      console.error('❌ Could not obtain a valid paymaster address');
+      logger.error('Could not obtain a valid paymaster address');
       return res.status(500).json({
         jsonrpc: '2.0',
         id,
@@ -477,7 +483,7 @@ async function handleGetPaymasterData(req: NextApiRequest, res: NextApiResponse)
     
     // Check how long we've been processing
     const processingTime = Date.now() - startTime;
-    console.log(`⏱️ Full processing completed in ${processingTime}ms`);
+    logger.info(`Full processing completed in ${processingTime}ms`);
     
     // Return successful response based on EntryPoint version
     if (isEntryPointV07) {
@@ -514,7 +520,7 @@ async function handleGetPaymasterData(req: NextApiRequest, res: NextApiResponse)
     }
   } catch (error) {
     const processingTime = Date.now() - startTime;
-    console.error(`❌ Error in getPaymasterData after ${processingTime}ms:`, error);
+    logger.error(`Error in getPaymasterData after ${processingTime}ms:`, error);
     return res.status(500).json({
       jsonrpc: '2.0',
       id,
@@ -541,7 +547,7 @@ async function handleGetPaymasterStubData(req: NextApiRequest, res: NextApiRespo
     const hotPathRpcUrl = process.env.RPC_URL || BACKEND_RPC_URL;
     const hotPathAddressHub = process.env.ADDRESS_HUB || ADDRESS_HUB;
     
-    console.log('🌡️ Hot path environment check for stub data:', {
+    logger.debug('Hot path environment check for stub data', {
       SPONSOR_KEY: hotPathPrivateKey ? 'defined' : 'undefined',
       RPC_URL: hotPathRpcUrl ? 'defined' : 'undefined',
       ADDRESS_HUB: hotPathAddressHub ? 'defined' : 'undefined'
@@ -550,16 +556,16 @@ async function handleGetPaymasterStubData(req: NextApiRequest, res: NextApiRespo
     // Extract parameters
     const [userOperation, entryPointAddress, chainId, context] = params;
     
-    console.log('🔍 Processing paymaster stub data request for sender:', userOperation.sender);
-    console.log('⏱️ Request received at:', new Date().toISOString());
-    console.log('📄 EntryPoint version details:', {
+    logger.info('Processing paymaster stub data request for sender:', userOperation.sender);
+    logger.info('Request received at:', new Date().toISOString());
+    logger.debug('EntryPoint version details', {
       entryPointAddress: entryPointAddress,
       chainId: chainId
     });
     
     // Detect EntryPoint version based on the address
     const isEntryPointV07 = entryPointAddress == entryPoint07Address;
-    console.log(`🔍 Detected EntryPoint version for stub: ${isEntryPointV07 ? 'v0.7' : 'v0.6'}`);
+    logger.info(`Detected EntryPoint version for stub: ${isEntryPointV07 ? 'v0.7' : 'v0.6'}`);
     
     // Validate required parameters
     if (!userOperation || !userOperation.sender || !entryPointAddress || !chainId) {
@@ -579,7 +585,7 @@ async function handleGetPaymasterStubData(req: NextApiRequest, res: NextApiRespo
     let dynamicSponsorWallet = sponsorWallet;
     
     if (hotPathPrivateKey && !dynamicSponsorAccount) {
-      console.log('🔥 Creating sponsor account on hot path for stub data with fresh private key');
+      logger.info('Creating sponsor account on hot path for stub data with fresh private key');
       try {
         dynamicSponsorAccount = privateKeyToAccount(hotPathPrivateKey as Hex);
         dynamicSponsorWallet = createWalletClient({
@@ -587,9 +593,9 @@ async function handleGetPaymasterStubData(req: NextApiRequest, res: NextApiRespo
           chain: monadTestnet,
           transport: http(hotPathRpcUrl)
         });
-        console.log('✅ Successfully created sponsor wallet on hot path for stub data');
+        logger.info('Successfully created sponsor wallet on hot path for stub data');
       } catch (walletError) {
-        console.error('❌ Failed to create sponsor wallet on hot path for stub data:', walletError);
+        logger.error('Failed to create sponsor wallet on hot path for stub data:', walletError);
       }
     }
     
@@ -606,8 +612,8 @@ async function handleGetPaymasterStubData(req: NextApiRequest, res: NextApiRespo
     // We need either a paymaster address or a wallet to proceed
     if (!PAYMASTER_ADDRESS && (!activeWallet || !activeAccount)) {
       // If we have neither paymaster address nor wallet, that's a real error
-      console.error('❌ Critical error: No paymaster address AND no sponsor wallet available');
-      console.error('   Hot path environment check:', {
+      logger.error('Critical error: No paymaster address AND no sponsor wallet available');
+      logger.debug('Hot path environment check', {
         SPONSOR_KEY: hotPathPrivateKey ? 'defined' : 'undefined',
         ADDRESS_HUB: hotPathAddressHub ? 'defined' : 'undefined'
       });
@@ -647,14 +653,14 @@ async function handleGetPaymasterStubData(req: NextApiRequest, res: NextApiRespo
       }
     }
     
-    console.log(`📍 Using effective paymaster address for stub: ${effectivePaymasterAddress}`);
+    logger.info(`Using effective paymaster address for stub: ${effectivePaymasterAddress}`);
     
     // Generate stub paymaster data with the effective address
     const paymasterAndData = `0x${effectivePaymasterAddress.slice(2)}${'00'.repeat(64)}` as Hex;
     
     // Check how long we've been processing
     const processingTime = Date.now() - startTime;
-    console.log(`⏱️ Stub data prepared in ${processingTime}ms`);
+    logger.info(`Stub data prepared in ${processingTime}ms`);
     
     // Return response based on EntryPoint version
     if (isEntryPointV07) {
@@ -690,7 +696,7 @@ async function handleGetPaymasterStubData(req: NextApiRequest, res: NextApiRespo
     }
   } catch (error) {
     const processingTime = Date.now() - startTime;
-    console.error(`❌ Error in getPaymasterStubData after ${processingTime}ms:`, error);
+    logger.error(`Error in getPaymasterStubData after ${processingTime}ms:`, error);
     return res.status(500).json({
       jsonrpc: '2.0',
       id,
@@ -705,7 +711,7 @@ async function handleGetPaymasterStubData(req: NextApiRequest, res: NextApiRespo
 
 // Helper function to read paymaster address on demand directly from contract
 async function readPaymasterAddressOnDemand(addressHubAddress: Address, wallet: any): Promise<Address | null> {
-  console.log('🔄 Attempting to read paymaster address on demand from contract');
+  logger.info('Attempting to read paymaster address on demand from contract');
   try {
     const addressHubContract = await initContract(
       addressHubAddress,
@@ -714,21 +720,21 @@ async function readPaymasterAddressOnDemand(addressHubAddress: Address, wallet: 
     );
     
     if (!addressHubContract) {
-      console.error('❌ Failed to initialize Address Hub contract on demand');
+      logger.error('Failed to initialize Address Hub contract on demand');
       return null;
     }
     
     const paymasterAddress = (await addressHubContract.read.paymaster4337([])) as Address;
     
     if (!paymasterAddress || paymasterAddress === '0x0000000000000000000000000000000000000000') {
-      console.error('❌ Invalid paymaster address read from contract on demand');
+      logger.error('Invalid paymaster address read from contract on demand');
       return null;
     }
     
-    console.log('✅ Successfully read paymaster address on demand:', paymasterAddress);
+    logger.info('Successfully read paymaster address on demand:', paymasterAddress);
     return paymasterAddress;
   } catch (error) {
-    console.error('❌ Error reading paymaster address on demand:', error);
+    logger.error('Error reading paymaster address on demand:', error);
     return null;
   }
 } 

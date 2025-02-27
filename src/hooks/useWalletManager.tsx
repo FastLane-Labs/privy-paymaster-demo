@@ -31,37 +31,59 @@ import shmonadAbi from '@/abis/shmonad.json';
 import { createSmartAccountClient } from 'permissionless';
 import { toSafeSmartAccount } from 'permissionless/accounts';
 import { createLocalPaymasterClient } from '@/utils/paymasterClient';
+import { logger } from '@/utils/logger';
 
 // Define the EntryPoint address
 const entryPoint07Address = ENTRY_POINT_ADDRESS;
 
 // Add this function before the useWalletManager function
 async function debugPrivyProvider(provider: any) {
-  console.log('🔍 DEBUGGING PRIVY PROVIDER:');
-  console.log('Provider type:', typeof provider);
+  logger.debug('DEBUGGING PRIVY PROVIDER', {
+    providerType: typeof provider,
+    hasRequestMethod: typeof provider.request === 'function'
+  });
   
-  // Check basic provider properties
-  const hasRequest = typeof provider.request === 'function';
-  console.log('Provider has request method:', hasRequest);
-  
-  if (hasRequest) {
+  if (typeof provider.request === 'function') {
     try {
       // Test basic provider functionality
-      console.log('Testing provider.request with eth_accounts...');
+      logger.debug('Testing provider.request with eth_accounts...');
       const accounts = await provider.request({ method: 'eth_accounts' });
-      console.log('Provider eth_accounts result:', accounts);
+      logger.debug('Provider accounts', accounts);
       
-      console.log('Testing provider.request with eth_chainId...');
+      // Test chain ID
+      logger.debug('Testing provider.request with eth_chainId...');
       const chainId = await provider.request({ method: 'eth_chainId' });
-      console.log('Provider eth_chainId result:', chainId);
+      logger.debug('Provider chainId', chainId);
+      
+      // Check if the provider has the expected methods
+      const methods = [
+        'eth_accounts',
+        'eth_chainId',
+        'eth_sendTransaction',
+        'eth_sign',
+        'personal_sign',
+        'eth_signTypedData_v4'
+      ];
+      
+      logger.debug('Checking provider methods...');
+      for (const method of methods) {
+        try {
+          // Just check if the method exists by calling it with invalid params
+          // This will throw, but we can catch the error to see if it's supported
+          await provider.request({ method });
+        } catch (error: any) {
+          const supported = !error.message.includes('not supported');
+          logger.debug(`Method ${method}`, supported ? 'supported' : 'NOT SUPPORTED');
+        }
+      }
       
       return true;
     } catch (error) {
-      console.error('Error testing provider functionality:', error);
+      logger.error('Error testing provider', error);
       return false;
     }
   } else {
-    console.error('Provider is missing request method!');
+    logger.error('Provider does not have a request method');
     return false;
   }
 }

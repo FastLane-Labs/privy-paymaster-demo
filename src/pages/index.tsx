@@ -187,6 +187,17 @@ export default function Home() {
       </Head>
 
       <div className="relative py-3 sm:max-w-3xl mx-auto w-full px-4">
+        {ready && authenticated && (
+          <div className="flex justify-end mb-4">
+            <button
+              onClick={logout}
+              className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 shadow-md"
+            >
+              Logout
+            </button>
+          </div>
+        )}
+        
         {!ready ? (
           <div className="text-center p-4 bg-white rounded-lg shadow mb-6">
             <p>Loading Privy...</p>
@@ -220,7 +231,6 @@ export default function Home() {
                       walletBalance={walletBalance}
                       smartAccountBalance={smartAccountBalance}
                       bondedShmon={bondedShmon}
-                      logout={logout}
                     />
 
                     {smartAccount && contractAddresses.paymaster && (
@@ -247,7 +257,8 @@ export default function Home() {
                           disabledReason={undefined}
                           txHash={sponsoredTxHash}
                           txStatus={sponsoredTxStatus}
-                          description="Transaction fees are covered by the paymaster contract"
+                          description="Transaction fees are covered by the Fastlane paymaster contract"
+                          isFastlaneSponsored={true}
                         />
 
                         {bondedShmon !== '0' ? (

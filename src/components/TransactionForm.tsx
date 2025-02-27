@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import FastlaneSponsor from './FastlaneSponsor';
 
 interface TransactionFormProps {
   title: string;
@@ -11,6 +12,7 @@ interface TransactionFormProps {
   txStatus?: string;
   defaultAmount?: string;
   description?: string;
+  isFastlaneSponsored?: boolean;
 }
 
 export default function TransactionForm({
@@ -24,6 +26,7 @@ export default function TransactionForm({
   txStatus,
   defaultAmount = '0.001',
   description,
+  isFastlaneSponsored = false,
 }: TransactionFormProps) {
   const [recipient, setRecipient] = useState('');
   const [amount, setAmount] = useState(defaultAmount);
@@ -58,6 +61,13 @@ export default function TransactionForm({
       {description && (
         <p className="text-sm text-gray-600 mb-3">{description}</p>
       )}
+      
+      {isFastlaneSponsored && (
+        <div className="mb-4">
+          <FastlaneSponsor size="sm" />
+        </div>
+      )}
+      
       <form onSubmit={handleSubmit} className="space-y-3">
         <div>
           <label className="block text-sm font-medium text-gray-700">Recipient Address</label>
@@ -83,7 +93,7 @@ export default function TransactionForm({
         <div className="flex flex-wrap gap-2">
           <button
             type="submit"
-            className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 disabled:bg-gray-400 disabled:cursor-not-allowed"
+            className={`px-4 py-2 ${isFastlaneSponsored ? 'bg-black' : 'bg-green-500'} text-white rounded hover:${isFastlaneSponsored ? 'bg-gray-800' : 'bg-green-600'} disabled:bg-gray-400 disabled:cursor-not-allowed`}
             disabled={loading || disabled || isError}
             title={disabled ? disabledReason : ''}
           >

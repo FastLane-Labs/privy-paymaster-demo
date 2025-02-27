@@ -2,25 +2,82 @@
   {
     "type": "constructor",
     "inputs": [
-      { "name": "_entryPoint", "type": "address", "internalType": "contract IEntryPoint" },
-      { "name": "_addressHub", "type": "address", "internalType": "address" },
-      { "name": "_escrowDuration", "type": "uint48", "internalType": "uint48" },
-      { "name": "_overhead", "type": "uint256", "internalType": "uint256" }
+      {
+        "name": "_entryPoint",
+        "type": "address",
+        "internalType": "contract IEntryPoint"
+      },
+      {
+        "name": "_addressHub",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "_escrowDuration",
+        "type": "uint48",
+        "internalType": "uint48"
+      },
+      {
+        "name": "_fee",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
     ],
     "stateMutability": "nonpayable"
   },
-  { "type": "receive", "stateMutability": "payable" },
+  {
+    "type": "receive",
+    "stateMutability": "payable"
+  },
   {
     "type": "function",
     "name": "ADDRESS_HUB",
     "inputs": [],
-    "outputs": [{ "name": "", "type": "address", "internalType": "address" }],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "FEE",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "POLICY_ID",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
     "stateMutability": "view"
   },
   {
     "type": "function",
     "name": "addStake",
-    "inputs": [{ "name": "unstakeDelaySec", "type": "uint32", "internalType": "uint32" }],
+    "inputs": [
+      {
+        "name": "unstakeDelaySec",
+        "type": "uint32",
+        "internalType": "uint32"
+      }
+    ],
     "outputs": [],
     "stateMutability": "payable"
   },
@@ -28,7 +85,13 @@
     "type": "function",
     "name": "administrator",
     "inputs": [],
-    "outputs": [{ "name": "", "type": "address", "internalType": "address" }],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
     "stateMutability": "view"
   },
   {
@@ -42,14 +105,26 @@
     "type": "function",
     "name": "entryPoint",
     "inputs": [],
-    "outputs": [{ "name": "", "type": "address", "internalType": "contract IEntryPoint" }],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract IEntryPoint"
+      }
+    ],
     "stateMutability": "view"
   },
   {
     "type": "function",
     "name": "getDeposit",
     "inputs": [],
-    "outputs": [{ "name": "", "type": "uint256", "internalType": "uint256" }],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
     "stateMutability": "view"
   },
   {
@@ -61,45 +136,97 @@
         "type": "tuple",
         "internalType": "struct PackedUserOperation",
         "components": [
-          { "name": "sender", "type": "address", "internalType": "address" },
-          { "name": "nonce", "type": "uint256", "internalType": "uint256" },
-          { "name": "initCode", "type": "bytes", "internalType": "bytes" },
-          { "name": "callData", "type": "bytes", "internalType": "bytes" },
-          { "name": "accountGasLimits", "type": "bytes32", "internalType": "bytes32" },
-          { "name": "preVerificationGas", "type": "uint256", "internalType": "uint256" },
-          { "name": "gasFees", "type": "bytes32", "internalType": "bytes32" },
-          { "name": "paymasterAndData", "type": "bytes", "internalType": "bytes" },
-          { "name": "signature", "type": "bytes", "internalType": "bytes" }
+          {
+            "name": "sender",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "nonce",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "initCode",
+            "type": "bytes",
+            "internalType": "bytes"
+          },
+          {
+            "name": "callData",
+            "type": "bytes",
+            "internalType": "bytes"
+          },
+          {
+            "name": "accountGasLimits",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "preVerificationGas",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "gasFees",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "paymasterAndData",
+            "type": "bytes",
+            "internalType": "bytes"
+          },
+          {
+            "name": "signature",
+            "type": "bytes",
+            "internalType": "bytes"
+          }
         ]
       },
-      { "name": "validUntil", "type": "uint48", "internalType": "uint48" },
-      { "name": "validAfter", "type": "uint48", "internalType": "uint48" }
+      {
+        "name": "validUntil",
+        "type": "uint48",
+        "internalType": "uint48"
+      },
+      {
+        "name": "validAfter",
+        "type": "uint48",
+        "internalType": "uint48"
+      }
     ],
-    "outputs": [{ "name": "", "type": "bytes32", "internalType": "bytes32" }],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "overhead",
-    "inputs": [],
-    "outputs": [{ "name": "", "type": "uint256", "internalType": "uint256" }],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "POLICY_ID",
-    "inputs": [],
-    "outputs": [{ "name": "", "type": "uint64", "internalType": "uint64" }],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
     "stateMutability": "view"
   },
   {
     "type": "function",
     "name": "postOp",
     "inputs": [
-      { "name": "mode", "type": "uint8", "internalType": "enum IPaymaster.PostOpMode" },
-      { "name": "context", "type": "bytes", "internalType": "bytes" },
-      { "name": "actualGasCost", "type": "uint256", "internalType": "uint256" },
-      { "name": "actualUserOpFeePerGas", "type": "uint256", "internalType": "uint256" }
+      {
+        "name": "mode",
+        "type": "uint8",
+        "internalType": "enum IPaymaster.PostOpMode"
+      },
+      {
+        "name": "context",
+        "type": "bytes",
+        "internalType": "bytes"
+      },
+      {
+        "name": "actualGasCost",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "actualUserOpFeePerGas",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
@@ -107,14 +234,26 @@
   {
     "type": "function",
     "name": "redeemAndWithdrawShMonad",
-    "inputs": [{ "name": "amount", "type": "uint256", "internalType": "uint256" }],
+    "inputs": [
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
     "outputs": [],
     "stateMutability": "nonpayable"
   },
   {
     "type": "function",
     "name": "setAdministrator",
-    "inputs": [{ "name": "newAdministrator", "type": "address", "internalType": "address" }],
+    "inputs": [
+      {
+        "name": "newAdministrator",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
     "outputs": [],
     "stateMutability": "nonpayable"
   },
@@ -122,15 +261,29 @@
     "type": "function",
     "name": "shMonad",
     "inputs": [],
-    "outputs": [{ "name": "", "type": "address", "internalType": "contract IShMonad" }],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract IShMonad"
+      }
+    ],
     "stateMutability": "view"
   },
   {
     "type": "function",
     "name": "unbondShMonad",
     "inputs": [
-      { "name": "amount", "type": "uint256", "internalType": "uint256" },
-      { "name": "newMinBalance", "type": "uint256", "internalType": "uint256" }
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "newMinBalance",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
@@ -151,30 +304,88 @@
         "type": "tuple",
         "internalType": "struct PackedUserOperation",
         "components": [
-          { "name": "sender", "type": "address", "internalType": "address" },
-          { "name": "nonce", "type": "uint256", "internalType": "uint256" },
-          { "name": "initCode", "type": "bytes", "internalType": "bytes" },
-          { "name": "callData", "type": "bytes", "internalType": "bytes" },
-          { "name": "accountGasLimits", "type": "bytes32", "internalType": "bytes32" },
-          { "name": "preVerificationGas", "type": "uint256", "internalType": "uint256" },
-          { "name": "gasFees", "type": "bytes32", "internalType": "bytes32" },
-          { "name": "paymasterAndData", "type": "bytes", "internalType": "bytes" },
-          { "name": "signature", "type": "bytes", "internalType": "bytes" }
+          {
+            "name": "sender",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "nonce",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "initCode",
+            "type": "bytes",
+            "internalType": "bytes"
+          },
+          {
+            "name": "callData",
+            "type": "bytes",
+            "internalType": "bytes"
+          },
+          {
+            "name": "accountGasLimits",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "preVerificationGas",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "gasFees",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "paymasterAndData",
+            "type": "bytes",
+            "internalType": "bytes"
+          },
+          {
+            "name": "signature",
+            "type": "bytes",
+            "internalType": "bytes"
+          }
         ]
       },
-      { "name": "userOpHash", "type": "bytes32", "internalType": "bytes32" },
-      { "name": "maxCost", "type": "uint256", "internalType": "uint256" }
+      {
+        "name": "userOpHash",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "maxCost",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
     ],
     "outputs": [
-      { "name": "context", "type": "bytes", "internalType": "bytes" },
-      { "name": "validationData", "type": "uint256", "internalType": "uint256" }
+      {
+        "name": "context",
+        "type": "bytes",
+        "internalType": "bytes"
+      },
+      {
+        "name": "validationData",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
     ],
     "stateMutability": "nonpayable"
   },
   {
     "type": "function",
     "name": "withdrawStake",
-    "inputs": [{ "name": "withdrawAddress", "type": "address", "internalType": "address payable" }],
+    "inputs": [
+      {
+        "name": "withdrawAddress",
+        "type": "address",
+        "internalType": "address payable"
+      }
+    ],
     "outputs": [],
     "stateMutability": "nonpayable"
   },
@@ -182,8 +393,16 @@
     "type": "function",
     "name": "withdrawTo",
     "inputs": [
-      { "name": "withdrawAddress", "type": "address", "internalType": "address payable" },
-      { "name": "amount", "type": "uint256", "internalType": "uint256" }
+      {
+        "name": "withdrawAddress",
+        "type": "address",
+        "internalType": "address payable"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
@@ -192,23 +411,72 @@
     "type": "event",
     "name": "UserOperationSponsored",
     "inputs": [
-      { "name": "userOpHash", "type": "bytes32", "indexed": true, "internalType": "bytes32" },
-      { "name": "user", "type": "address", "indexed": true, "internalType": "address" },
-      { "name": "payor", "type": "address", "indexed": true, "internalType": "address" },
-      { "name": "actualGasCost", "type": "uint256", "indexed": false, "internalType": "uint256" },
-      { "name": "policyID", "type": "uint64", "indexed": false, "internalType": "uint64" }
+      {
+        "name": "userOpHash",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "payor",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "actualGasCost",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "policyID",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      }
     ],
     "anonymous": false
   },
   {
     "type": "error",
     "name": "ForwardingError",
-    "inputs": [{ "name": "nestedError", "type": "bytes4", "internalType": "bytes4" }]
+    "inputs": [
+      {
+        "name": "nestedError",
+        "type": "bytes4",
+        "internalType": "bytes4"
+      }
+    ]
   },
-  { "type": "error", "name": "InsufficientBalance", "inputs": [] },
-  { "type": "error", "name": "InvalidMode", "inputs": [] },
-  { "type": "error", "name": "InvalidPaymasterAndDataLength", "inputs": [] },
-  { "type": "error", "name": "InvalidPaymasterConfigLength", "inputs": [] },
-  { "type": "error", "name": "InvalidPayorAddress", "inputs": [] },
-  { "type": "error", "name": "InvalidTimestampRange", "inputs": [] }
+  {
+    "type": "error",
+    "name": "InsufficientBalance",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidMode",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidPaymasterAndDataLength",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidPaymasterConfigLength",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidPayorAddress",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidTimestampRange",
+    "inputs": []
+  }
 ]

@@ -10,6 +10,7 @@ interface TransactionFormProps {
   txHash?: string;
   txStatus?: string;
   defaultAmount?: string;
+  description?: string;
 }
 
 export default function TransactionForm({
@@ -22,6 +23,7 @@ export default function TransactionForm({
   txHash,
   txStatus,
   defaultAmount = '0.001',
+  description,
 }: TransactionFormProps) {
   const [recipient, setRecipient] = useState('');
   const [amount, setAmount] = useState(defaultAmount);
@@ -53,6 +55,9 @@ export default function TransactionForm({
   return (
     <div className="border p-4 rounded-lg">
       <h2 className="text-xl font-semibold mb-2">{title}</h2>
+      {description && (
+        <p className="text-sm text-gray-600 mb-3">{description}</p>
+      )}
       <form onSubmit={handleSubmit} className="space-y-3">
         <div>
           <label className="block text-sm font-medium text-gray-700">Recipient Address</label>

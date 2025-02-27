@@ -7,6 +7,7 @@ interface WalletStatusProps {
   walletBalance: string;
   smartAccountBalance: string;
   bondedShmon: string;
+  logout?: () => void;
 }
 
 export default function WalletStatus({
@@ -15,6 +16,7 @@ export default function WalletStatus({
   walletBalance,
   smartAccountBalance,
   bondedShmon,
+  logout,
 }: WalletStatusProps) {
   return (
     <div className="border p-4 rounded-lg">
@@ -51,6 +53,17 @@ export default function WalletStatus({
                 </p>
               )}
             </>
+          )}
+          
+          {logout && (
+            <div className="mt-4">
+              <button
+                onClick={logout}
+                className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
+              >
+                Logout
+              </button>
+            </div>
           )}
         </div>
       )}

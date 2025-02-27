@@ -93,6 +93,7 @@ export type WalletManagerState = {
   smartAccount: any | null;
   smartAccountClient: any | null;
   bundler: ShBundlerClient | null;
+  walletClient: WalletClient | null;
   loading: boolean;
   contractAddresses: {
     paymaster: Address;
@@ -105,13 +106,14 @@ export type WalletManagerState = {
 };
 
 export function useWalletManager() {
-  const { authenticated, ready, user } = usePrivy();
+  const { authenticated, ready, user, logout } = usePrivy();
   const { createWallet } = useCreateWallet();
   const { wallets } = useWallets();
   const [embeddedWallet, setEmbeddedWallet] = useState<ConnectedWallet | null>(null);
   const [smartAccount, setSmartAccount] = useState<any>(null);
   const [smartAccountClient, setSmartAccountClient] = useState<any>(null);
   const [bundler, setBundler] = useState<ShBundlerClient | null>(null);
+  const [walletClient, setWalletClient] = useState<WalletClient | null>(null);
   const [loading, setLoading] = useState(false);
   const [contractAddresses, setContractAddresses] = useState({
     paymaster: '' as Address,
@@ -230,6 +232,11 @@ export function useWalletManager() {
                   chain: MONAD_CHAIN,
                   transport: custom(provider as EIP1193Provider)
                 });
+
+                // Switch to the correct chain
+                await walletClient.switchChain({ id: MONAD_CHAIN.id });
+                // Store the wallet client for later use
+                setWalletClient(walletClient);
                 
                 const safeSmartAccount = await toSafeSmartAccount({
                   client,
@@ -472,7 +479,7 @@ export function useWalletManager() {
     const interval = setInterval(fetchExtendedData, 60000); // refresh every minute
 
     return () => clearInterval(interval);
-  }, [embeddedWallet, smartAccount, contractAddresses]);
+  }, [embeddedWallet, smartAccount, contractAddresses, walletClient]);
 
   return {
     authenticated,
@@ -481,6 +488,7 @@ export function useWalletManager() {
     smartAccount,
     smartAccountClient,
     bundler,
+    walletClient,
     loading,
     setLoading,
     contractAddresses,
@@ -489,5 +497,6 @@ export function useWalletManager() {
     bondedShmon,
     paymasterDeposit,
     shmonadAddress,
+    logout,
   };
 }

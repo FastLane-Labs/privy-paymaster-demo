@@ -29,6 +29,7 @@ export default function Home() {
     smartAccountBalance,
     bondedShmon,
     paymasterDeposit,
+    logout,
   } = walletManager;
 
   const txOperations = useTransactions(walletManager);
@@ -170,8 +171,8 @@ export default function Home() {
     }
   }
 
-  const handleBondMonToShmon = async () => {
-    const newBondedAmount = await bondMonToShmon();
+  const handleBondMonToShmon = async (amount: string) => {
+    const newBondedAmount = await bondMonToShmon(amount);
     if (newBondedAmount) {
       // Update the bonded amount if needed
     }
@@ -186,6 +187,23 @@ export default function Home() {
       </Head>
 
       <div className="relative py-3 sm:max-w-3xl mx-auto w-full px-4">
+        {!ready ? (
+          <div className="text-center p-4 bg-white rounded-lg shadow mb-6">
+            <p>Loading Privy...</p>
+          </div>
+        ) : !authenticated ? (
+          <div className="text-center p-4 bg-white rounded-lg shadow mb-6">
+            <h2 className="text-xl font-semibold mb-2">Account Access</h2>
+            <p className="mb-3">Login to access your account abstraction demo.</p>
+            <button
+              onClick={login}
+              className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+            >
+              Login with Privy
+            </button>
+          </div>
+        ) : null}
+
         <div className="absolute inset-0 bg-gradient-to-r from-blue-400 to-indigo-500 shadow-lg transform -skew-y-6 sm:skew-y-0 sm:-rotate-6 sm:rounded-3xl"></div>
         <div className="relative px-4 py-8 bg-white shadow-lg sm:rounded-3xl sm:p-10">
           <div className="mx-auto">
@@ -194,18 +212,7 @@ export default function Home() {
                 <h1 className="text-3xl font-bold text-center">Privy + Account Abstraction Demo</h1>
                 <p className="text-center">Demonstrating ERC-4337 Account Abstraction with Privy</p>
 
-                {!ready ? (
-                  <p className="text-center">Loading Privy...</p>
-                ) : !authenticated ? (
-                  <div className="text-center">
-                    <button
-                      onClick={login}
-                      className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-                    >
-                      Login with Privy
-                    </button>
-                  </div>
-                ) : (
+                {ready && authenticated && (
                   <div className="space-y-6">
                     <WalletStatus
                       embeddedWallet={embeddedWallet}
@@ -213,6 +220,7 @@ export default function Home() {
                       walletBalance={walletBalance}
                       smartAccountBalance={smartAccountBalance}
                       bondedShmon={bondedShmon}
+                      logout={logout}
                     />
 
                     {smartAccount && contractAddresses.paymaster && (
@@ -231,26 +239,38 @@ export default function Home() {
                         />
 
                         <TransactionForm
-                          title="Sponsored Transaction"
-                          buttonText="Send Sponsored Transaction"
+                          title="Send Paymaster Sponsored (Transfer)"
+                          buttonText="Send Transaction"
                           onSubmit={sendSponsoredTransaction}
                           loading={loading}
                           disabled={false}
                           disabledReason={undefined}
                           txHash={sponsoredTxHash}
                           txStatus={sponsoredTxStatus}
+                          description="Transaction fees are covered by the paymaster contract"
                         />
 
-                        <TransactionForm
-                          title="Send Transaction"
-                          buttonText="Send Transaction"
-                          onSubmit={sendTransaction}
-                          loading={loading}
-                          disabled={false}
-                          disabledReason={undefined}
-                          txHash={txHash}
-                          txStatus={txStatus}
-                        />
+                        {bondedShmon !== '0' ? (
+                          <TransactionForm
+                            title="Send Self Sponsored (Transfer)"
+                            buttonText="Send Transaction" 
+                            onSubmit={sendSelfSponsoredTransaction}
+                            loading={loading}
+                            txHash={selfSponsoredTxHash}
+                            txStatus={selfSponsoredTxStatus}
+                            description="Embedded EOA sponsors the smart account"
+                          />
+                        ) : (
+                          <div className="border p-4 rounded-lg bg-gray-50">
+                            <h2 className="text-xl font-semibold mb-2">Send Self Sponsored (Transfer)</h2>
+                            <p className="text-sm text-gray-600 mb-2">Embedded EOA sponsors the smart account</p>
+                            <div className="bg-amber-100 border-l-4 border-amber-500 p-3 mb-4">
+                              <p className="text-sm text-amber-700">
+                                Bond MON to shMON in the section below to enable self-sponsored transactions
+                              </p>
+                            </div>
+                          </div>
+                        )}
 
                         <BondMonForm
                           bondedShmon={bondedShmon}
@@ -258,17 +278,6 @@ export default function Home() {
                           loading={loading}
                           txStatus={txStatus}
                         />
-
-                        {bondedShmon !== '0' && (
-                          <TransactionForm
-                            title="Self-Sponsored Transaction"
-                            buttonText="Send Self-Sponsored Transaction"
-                            onSubmit={sendSelfSponsoredTransaction}
-                            loading={loading}
-                            txHash={selfSponsoredTxHash}
-                            txStatus={selfSponsoredTxStatus}
-                          />
-                        )}
                       </>
                     )}
                   </div>

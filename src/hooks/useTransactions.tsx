@@ -1,7 +1,6 @@
 import { useState } from 'react';
-import { publicClient } from '@/utils/config';
-import { initContract } from '@/utils/contracts';
-import { encodeFunctionData, parseEther, type Address, type Hex } from 'viem';
+import { MONAD_CHAIN, publicClient } from '@/utils/config';
+import { Account, EIP1193Provider, createWalletClient, custom, encodeFunctionData, http, parseEther, type Address, type Hex } from 'viem';
 import shmonadAbi from '@/abis/shmonad.json';
 import { WalletManagerState } from './useWalletManager';
 import { ShBundlerClient } from '@/utils/bundler';
@@ -30,6 +29,7 @@ interface TransactionWalletManager extends Partial<WalletManagerState> {
   setLoading?: (loading: boolean) => void;
   smartAccountClient?: any; // Renamed from kernelClient
   bundler?: ShBundlerClient | null; // Accept null or undefined
+  embeddedWallet?: any;
 }
 
 // Helper to handle transaction errors consistently
@@ -105,8 +105,15 @@ function handleTransactionError(error: unknown, setErrorStatus: (status: string)
 }
 
 export function useTransactions(walletManager: TransactionWalletManager) {
-  const { smartAccount, bundler, contractAddresses, smartAccountClient, setLoading } =
-    walletManager;
+  const { 
+    smartAccount, 
+    bundler, 
+    contractAddresses, 
+    smartAccountClient, 
+    embeddedWallet,
+    walletClient,
+    setLoading 
+  } = walletManager;
 
   // Transaction state
   const [txHash, setTxHash] = useState('');
@@ -354,44 +361,24 @@ export function useTransactions(walletManager: TransactionWalletManager) {
       } catch (error) {
         logger.error('Sponsored transaction failed', error);
         
-        // Extract more detailed error message if possible
-        let errorMessage = 'Sponsored transaction failed';
-        
+        let errorMessage = 'Transaction failed';
         if (error instanceof Error) {
           errorMessage = error.message;
-          
-          // Check for specific error types
-          if (error.message.includes('paymaster fields must be set together')) {
-            errorMessage = 'Paymaster configuration error - fields must be set together';
-            logger.error('Detailed error about paymaster fields', error);
-            
-            // This suggests the bundler's paymaster integration is not correctly configured
-            logger.warn('Make sure the paymaster is properly set up in your bundler configuration');
-          } else if (error.message.includes('paymaster required')) {
-            errorMessage = 'Paymaster required but not configured correctly';
-          } else if (error.message.includes('gas')) {
-            errorMessage = 'Gas estimation failed for sponsored transaction';
-          } else if (error.message.includes('signature')) {
-            errorMessage = 'Signature validation failed for sponsored transaction';
-            logger.error('Signature error details', error);
-            logger.warn('This could be related to the Privy signature popup not showing');
-          }
         }
         
-        // Set error status and fail - no fallback
-        setTxStatus(`Sponsored transaction failed: ${errorMessage}`);
+        setSponsoredTxStatus(`Transaction failed: ${errorMessage}`);
         return null;
       }
     } catch (error) {
       logger.error('Error in sendSponsoredTransaction', error);
       
-      let errorMessage = 'Unknown error in sponsored transaction';
-      
+      let errorMessage = 'Unknown error in transaction';
       if (error instanceof Error) {
         errorMessage = error.message;
       }
       
-      setTxStatus(`Error: ${errorMessage}`);
+      setSponsoredTxStatus(`Error: ${errorMessage}`);
+      return null;
     }
   };
 
@@ -450,7 +437,7 @@ export function useTransactions(walletManager: TransactionWalletManager) {
   }
 
   // Bond MON to shMON
-  async function bondMonToShmon() {
+  async function bondMonToShmon(amount: string = '2') {
     if (!smartAccount) {
       setTxStatus('Smart account not initialized');
       return null;
@@ -461,156 +448,133 @@ export function useTransactions(walletManager: TransactionWalletManager) {
       return null;
     }
 
+    if (!walletClient) {
+      setTxStatus('Wallet client not initialized');
+      return null;
+    }
+
+    if (!embeddedWallet) {
+      setTxStatus('Embedded wallet not initialized');
+      return null;
+    }
+
     try {
       setLoading?.(true);
-      setTxStatus('Preparing to bond MON to shMON...');
+      setTxStatus(`Preparing to bond ${amount} MON to shMON...`);
 
-      // Initialize shMONAD contract
-      const shMonadContract = await initContract(
-        contractAddresses.shmonad,
-        shmonadAbi,
-        publicClient
-      );
+      // Use provided amount instead of hardcoded value
+      const bondAmount = parseEther(amount);
 
-      // Amount to bond (hardcoded to 1 MON for simplicity)
-      const bondAmount = parseEther('1');
+      let policyId;
 
-      // Encode the function call
+      console.log('🔍 Contract addresses:', contractAddresses);
+      try {
+        // Create a proper ABI object for the POLICY_ID function
+        const properPolicyAbi = [
+          {
+            name: 'POLICY_ID',
+            type: 'function',
+            stateMutability: 'view',
+            inputs: [],
+            outputs: [{ type: 'uint256' }],
+          },
+        ] as const;
+
+        // Call the POLICY_ID function with the correct ABI
+        policyId = await publicClient.readContract({
+          address: contractAddresses?.paymaster as Address,
+          abi: properPolicyAbi,
+          functionName: 'POLICY_ID',
+        });
+
+        logger.info('Policy ID retrieved successfully:', policyId);
+      } catch (error) {
+        console.log('🔍 Error getting POLICY_ID:', error);
+        logger.error('Error getting POLICY_ID with custom ABI approach:', error);
+
+        // Fall back to a default value
+        logger.info('Using default POLICY_ID value');
+        policyId = BigInt(4);
+      }
+
+      // Get the EOA address (embedded wallet address) - this is what we'll bond for
+      const addresses = await walletClient.getAddresses();
+      if (!addresses.length) {
+        throw new Error('No addresses found in wallet client');
+      }
+      const eoaAddress = addresses[0];
+      
+      console.log('🔍 Using EOA address for bonding:', eoaAddress);
+
+      // Encode the depositAndBond function call
+      // We need to pass a policyId, recipient, and amount
+      // Important: We're bonding for the EOA (embedded wallet), not the smart account
       const callData = encodeFunctionData({
         abi: shmonadAbi,
-        functionName: 'deposit',
-        args: [],
+        functionName: 'depositAndBond',
+        args: [
+          policyId,
+          eoaAddress, // Bond for the EOA address, not the smart account
+          bondAmount,
+        ],
       });
 
-      setTxStatus('Submitting transaction to bond MON to shMON...');
+      setTxStatus(`Submitting transaction to bond ${amount} MON to shMON...`);
 
-      // Use the bundler with paymaster integration for sponsored transaction
-      if (bundler) {
-        setTxStatus('Using paymaster-sponsored transaction for bonding...');
-        console.log('💵 Sending bond transaction via bundler with paymaster');
-        
-        try {
-          // Get gas price
-          const gasPrice = await bundler.getUserOperationGasPrice();
-          console.log('✅ Gas prices received for bonding:', {
-            slow: `${gasPrice.slow.maxFeePerGas.toString()} / ${gasPrice.slow.maxPriorityFeePerGas.toString()}`,
-            standard: `${gasPrice.standard.maxFeePerGas.toString()} / ${gasPrice.standard.maxPriorityFeePerGas.toString()}`
-          });
-          
-          // STEP 1: First prepare a minimal user operation to get initial values
-          console.log('📝 Preparing bond operation...');
-          setTxStatus('Preparing bond operation...');
-          
-          // This step will validate the operation but won't submit anything
-          const preparedOp = await bundler.prepareUserOperation({
-            account: smartAccount,
-            calls: [
-              {
-                to: contractAddresses.shmonad as Address,
-                value: bondAmount,
-                data: callData as Hex,
-              }
-            ]
-          });
-          
-          console.log('✅ Initial bond operation prepared:', {
-            sender: preparedOp.sender,
-            nonce: preparedOp.nonce.toString(),
-            callGasLimit: preparedOp.callGasLimit?.toString() || 'not set',
-            verificationGasLimit: preparedOp.verificationGasLimit?.toString() || 'not set',
-            preVerificationGas: preparedOp.preVerificationGas?.toString() || 'not set',
-            hasPaymasterData: !!preparedOp.paymasterAndData && preparedOp.paymasterAndData !== '0x',
-          });
-          console.log('Full user operation:', serializeBigInt(preparedOp));
-          
-          // STEP 2: Send the bond operation with the bundler
-          logger.info('Sending sponsored bond operation...');
-          setTxStatus('Sending sponsored bond transaction...');
-          
-          const userOpHash = await bundler.sendUserOperation(preparedOp as UserOperation);
-          
-          logger.info('Bond operation submitted with hash', userOpHash);
-          setTxHash(userOpHash);
-          setTxStatus('Bond transaction submitted, waiting for confirmation...');
+      // Use sendTransaction instead of signTransaction + sendRawTransaction
+      logger.info('🚀 Sending transaction with params:', {
+        to: contractAddresses.shmonad,
+        value: bondAmount.toString(),
+        chainId: MONAD_CHAIN.id,
+        bondingFor: eoaAddress // Log who we're bonding for
+      });
 
-          // Wait for receipt and update UI
-          const receipt = await bundler.waitForUserOperationReceipt({
-            hash: userOpHash,
-          });
+      // Estimate gas with a safety buffer to prevent "gas limit too low" errors
+      logger.info('⛽ Estimating gas for the transaction...');
+      let gasLimit;
+      try {
+        const gasEstimate = await publicClient.estimateGas({
+          account: eoaAddress,
+          to: contractAddresses.shmonad as Address,
+          value: bondAmount,
+          data: callData as Hex,
+        });
 
-          setTxStatus(`Sponsored bond transaction confirmed! Transaction hash: ${receipt.receipt.transactionHash}`);
-          setLoading?.(false);
-          return receipt;
-        } catch (error) {
-          console.error('❌ Sponsored bond transaction failed:', error);
-          
-          // Extract more detailed error message if possible
-          let errorMessage = 'Sponsored bond transaction failed';
-          
-          if (error instanceof Error) {
-            errorMessage = error.message;
-            
-            // Check for specific error types
-            if (error.message.includes('paymaster fields must be set together')) {
-              errorMessage = 'Paymaster configuration error - fields must be set together';
-              console.error('❌ Detailed error about paymaster fields:', error);
-              
-              // This suggests the bundler's paymaster integration is not correctly configured
-              console.warn('⚠️ The Zero-dev bundler paymaster integration may not be correctly configured');
-              console.warn('⚠️ Make sure the paymaster is properly set up in your bundler configuration');
-            } else if (error.message.includes('paymaster required')) {
-              errorMessage = 'Paymaster required but not configured correctly';
-            } else if (error.message.includes('gas')) {
-              errorMessage = 'Gas estimation failed for sponsored bond transaction';
-            } else if (error.message.includes('signature')) {
-              errorMessage = 'Signature validation failed for sponsored bond transaction';
-              console.error('❌ Signature error details:', error);
-              console.warn('⚠️ This could be related to the Privy signature popup not showing');
-            }
-          }
-          
-          // Set error status and fail - no fallback
-          setTxStatus(`Sponsored bond transaction failed: ${errorMessage}`);
-          setLoading?.(false);
-          return null;
-        }
+        // Add a 30% buffer to the gas estimate to ensure it's sufficient
+        gasLimit = BigInt(Math.floor(Number(gasEstimate) * 1.3));
+        logger.info(`✅ Gas estimated: ${gasEstimate}, with buffer: ${gasLimit}`);
+      } catch (gasError) {
+        logger.warn('⚠️ Gas estimation failed, using fallback value:', gasError);
+        // Use a conservative fallback gas limit if estimation fails
+        gasLimit = 500000n;
+        logger.info(`⚠️ Using fallback gas limit: ${gasLimit}`);
       }
-      // Use non-sponsored transaction via smartAccountClient
-      else if (smartAccountClient) {
-        setTxStatus('Using non-sponsored transaction for bonding...');
-        console.log('💰 Using smart account client directly for non-sponsored bonding');
 
-        try {
-          // Send transaction using smartAccountClient
-          const hash = await smartAccountClient.sendTransaction({
-            to: contractAddresses.shmonad as Address,
-            value: bondAmount,
-            data: callData as Hex,
-          });
+      // Send the transaction
+      const hash = await walletClient.sendTransaction({
+        to: contractAddresses.shmonad as Address,
+        value: bondAmount,
+        data: callData as Hex,
+        account: eoaAddress as Address, // Explicitly cast to Address to satisfy TypeScript
+        chain: MONAD_CHAIN, // Explicitly set chain to MONAD_CHAIN
+        gas: gasLimit, // Add explicit gas limit
+      });
 
-          setTxHash(hash);
-          setTxStatus('Waiting for bond transaction confirmation...');
+      setTxHash(hash);
+      setTxStatus(`Waiting for bond transaction of ${amount} MON confirmation...`);
 
-          // Wait for transaction receipt
-          const receipt = await smartAccountClient.waitForTransactionReceipt({
-            hash: hash,
-          });
+      // Wait for transaction to be confirmed
+      const receipt = await publicClient.waitForTransactionReceipt({
+        hash: hash,
+      });
 
-          setTxStatus(`Bond transaction confirmed! Transaction hash: ${receipt.transactionHash}`);
-          setLoading?.(false);
-          return receipt;
-        } catch (error) {
-          console.error('❌ Non-sponsored bond transaction failed:', error);
-          setTxStatus('Non-sponsored bond transaction failed: ' + (error as Error).message);
-          setLoading?.(false);
-          return null;
-        }
-      } else {
-        console.error('No suitable client available for bonding');
-        setTxStatus('No suitable client available for bonding');
-        setLoading?.(false);
-        return null;
-      }
+      setTxStatus(
+        `Bond transaction of ${amount} MON confirmed! Transaction hash: ${receipt.transactionHash}`
+      );
+      setLoading?.(false);
+
+      // Return receipt to indicate success
+      return receipt;
     } catch (error) {
       handleTransactionError(error, setTxStatus);
       setLoading?.(false);

@@ -1,11 +1,15 @@
-import { type Address, type Hex, type Client, type WalletClient } from 'viem';
+import { type Address, type Hex, type WalletClient, http } from 'viem';
 import { 
   type GetPaymasterDataParameters,
-  type GetPaymasterDataReturnType 
+  type GetPaymasterDataReturnType,
+  type GetPaymasterStubDataReturnType,
+  type GetPaymasterStubDataParameters,
+  createPaymasterClient,
+  type PaymasterClient
 } from 'viem/account-abstraction';
 import { toPackedUserOperation } from 'viem/account-abstraction';
 import { initContract, paymasterMode } from './contracts';
-import { publicClient } from './config';
+import { publicClient, RPC_URL } from './config';
 
 /**
  * Interface for the paymaster client configuration
@@ -17,9 +21,9 @@ export interface CustomPaymasterClientConfig {
 }
 
 /**
- * Creates a custom paymaster client for sponsor-based transactions
+ * Creates a custom paymaster client for sponsor-based transactions using viem's createPaymasterClient
  */
-export function createCustomPaymasterClient(config: CustomPaymasterClientConfig) {
+export function createCustomPaymasterClient(config: CustomPaymasterClientConfig): PaymasterClient {
   const { paymasterAddress, paymasterAbi, sponsorWallet } = config;
   
   // Log detailed information about the paymaster configuration
@@ -45,28 +49,28 @@ export function createCustomPaymasterClient(config: CustomPaymasterClientConfig)
   }
   
   console.log('✅ Paymaster client configuration is valid');
+
+  // Create a standard paymaster client
+  const paymasterClient = createPaymasterClient({
+    transport: http(RPC_URL),
+    name: 'Custom Sponsor Paymaster',
+  });
   
-  return {
-    /**
-     * Returns paymaster data for a user operation
-     */
-    async sponsorUserOperation({ 
-      userOperation
-    }: { 
-      userOperation: GetPaymasterDataParameters 
-    }): Promise<GetPaymasterDataReturnType> {
+  // Extend the client with our custom getPaymasterData implementation
+  return paymasterClient.extend((client) => ({
+    getPaymasterData: async (params: GetPaymasterDataParameters): Promise<GetPaymasterDataReturnType> => {
       try {
-        console.log('🎯 Paymaster sponsorUserOperation called for sender:', userOperation.sender);
+        console.log('🎯 Paymaster getPaymasterData called for sender:', params.sender);
         
-        if (!userOperation || !userOperation.sender) {
-          console.error('❌ Invalid user operation:', userOperation);
+        if (!params || !params.sender) {
+          console.error('❌ Invalid user operation:', params);
           throw new Error('User operation is required with valid sender address');
         }
         
         console.log('📄 User operation details:', {
-          sender: userOperation.sender,
-          nonce: userOperation.nonce?.toString() || 'undefined',
-          callData: userOperation.callData?.substring(0, 10) + '...' || 'undefined',
+          sender: params.sender,
+          nonce: params.nonce?.toString() || 'undefined',
+          callData: params.callData?.substring(0, 10) + '...' || 'undefined',
         });
         
         // Current timestamp for validity window
@@ -80,42 +84,6 @@ export function createCustomPaymasterClient(config: CustomPaymasterClientConfig)
         const validUntilDate = new Date(Number(validUntil) * 1000);
         console.log('⏰ Setting sponsorship validity window until:', validUntilDate.toISOString());
         
-        console.log('📦 Creating packed user operation for hashing');
-        
-        // Instead of manually creating the packed user operation, use the viem utility
-        console.log('Using toPackedUserOperation to properly format the user operation');
-        
-        // First ensure we have all required fields with default values
-        const userOpWithDefaults = {
-          sender: userOperation.sender,
-          nonce: userOperation.nonce || 0n,
-          callData: userOperation.callData || '0x',
-          initCode: userOperation.initCode || '0x',
-          callGasLimit: userOperation.callGasLimit || 1000000n,
-          verificationGasLimit: userOperation.verificationGasLimit || 1000000n,
-          preVerificationGas: userOperation.preVerificationGas || 1000000n,
-          maxFeePerGas: userOperation.maxFeePerGas || 1000000n,
-          maxPriorityFeePerGas: userOperation.maxPriorityFeePerGas || 1000000n,
-          paymasterAndData: '0x' as `0x${string}`,
-          signature: '0x' as `0x${string}`
-        };
-        
-        // Use the viem utility to properly pack the user operation
-        const packedUserOp = toPackedUserOperation(userOpWithDefaults);
-        
-        console.log('✅ Successfully packed user operation using viem utility');
-        console.log('📝 Packed user operation:', {
-          sender: packedUserOp.sender,
-          nonce: packedUserOp.nonce.toString(),
-          callData: packedUserOp.callData?.substring(0, 10) + '...',
-          initCode: packedUserOp.initCode,
-          accountGasLimits: packedUserOp.accountGasLimits,
-          preVerificationGas: packedUserOp.preVerificationGas.toString(),
-          gasFees: packedUserOp.gasFees,
-        });
-        
-        console.log('🧮 Getting hash from paymaster contract...');
-        
         // Initialize the paymaster contract
         const paymasterContract = await initContract(
           paymasterAddress,
@@ -127,64 +95,38 @@ export function createCustomPaymasterClient(config: CustomPaymasterClientConfig)
           throw new Error(`Failed to initialize paymaster contract at ${paymasterAddress}`);
         }
         
-        // Log the user operation we're sending to get hash
-        console.log('📝 User operation for hashing:', {
-          sender: packedUserOp.sender,
-          nonce: packedUserOp.nonce.toString(),
-          callData: packedUserOp.callData?.substring(0, 10) + '...',
-          initCode: packedUserOp.initCode,
-          accountGasLimits: packedUserOp.accountGasLimits,
-          preVerificationGas: packedUserOp.preVerificationGas.toString(),
-          gasFees: packedUserOp.gasFees,
-          signature: packedUserOp.signature
-        });
-        
-        // Ensure all required fields are present
-        if (!packedUserOp.sender || packedUserOp.nonce === undefined || !packedUserOp.callData) {
-          throw new Error(`Invalid user operation - missing required fields: 
-            sender=${!!packedUserOp.sender}, 
-            nonce=${packedUserOp.nonce !== undefined}, 
-            callData=${!!packedUserOp.callData}`);
-        }
-        
-        // Ensure we have initCode (even if empty)
-        if (packedUserOp.initCode === undefined) {
-          packedUserOp.initCode = '0x';
-        }
-        
         try {
           console.log('🔍 Calling getHash on paymaster contract...');
           console.log('   Contract address:', paymasterAddress);
           console.log('   Valid until:', validUntil.toString());
           console.log('   Valid after:', validAfter.toString());
           
-          // Get hash to sign
-          console.log('🧠 Calling getHash with packedUserOp:', {
-            sender: packedUserOp.sender,
-            nonce: packedUserOp.nonce.toString(),
-            // Add other key fields to validate
-          });
+          // Create a complete user operation with all required fields
+          const completeUserOp = {
+            ...params,
+            callGasLimit: params.callGasLimit || 100000n,
+            verificationGasLimit: params.verificationGasLimit || 100000n,
+            preVerificationGas: params.preVerificationGas || 100000n,
+            maxFeePerGas: params.maxFeePerGas || 1000000000n,
+            maxPriorityFeePerGas: params.maxPriorityFeePerGas || 1000000000n,
+            paymasterAndData: '0x' as Hex,
+            signature: '0x' as Hex,
+            initCode: params.initCode || '0x' as Hex
+          };
           
+          // Get hash to sign from the paymaster contract
+          console.log('🧠 Calling getHash with packed user operation');
           const hash = await paymasterContract.read.getHash([
-            packedUserOp,
+            toPackedUserOperation(completeUserOp as any),
             validUntil,
             validAfter,
           ]) as Hex;
-          
-          console.log('📊 Raw hash result:', hash);
-          console.log('📊 Hash type:', typeof hash);
-          console.log('📊 Is hash array?', Array.isArray(hash));
           
           if (!hash) {
             throw new Error('Paymaster returned null hash');
           }
           
-          console.log('📋 Got hash to sign from paymaster:', 
-            typeof hash === 'string' && hash.substring ? 
-            hash.substring(0, 10) + '...' : 
-            `[Hash format: ${typeof hash}]`);
-          
-          console.log('✍️ Signing hash with sponsor wallet...');
+          console.log('📋 Got hash to sign from paymaster:', hash.substring(0, 10) + '...');
           
           // Ensure sponsor wallet has an account
           if (!sponsorWallet.account) {
@@ -192,55 +134,53 @@ export function createCustomPaymasterClient(config: CustomPaymasterClientConfig)
           }
           
           // Sign hash with sponsor wallet
-          const signature = await sponsorWallet.signMessage({
+          const sponsorSignature = await sponsorWallet.signMessage({
             account: sponsorWallet.account,
             message: { raw: hash as Hex },
           });
           
-          if (!signature) {
-            throw new Error('Failed to sign hash with sponsor wallet');
-          }
-          
-          console.log('🖋️ Sponsor signed the hash with signature:', signature.slice(0, 10) + '...');
-          
-          console.log('🛠️ Creating paymaster data...');
+          console.log('🖋️ Sponsor signed the hash with signature:', sponsorSignature.slice(0, 10) + '...');
           
           // Create paymaster data
           const paymasterData = paymasterMode(
             "sponsor",
             validUntil,
             validAfter,
-            signature,
+            sponsorSignature,
             sponsorWallet
           ) as Hex;
           
-          if (!paymasterData) {
-            throw new Error('Failed to create paymaster data');
-          }
-          
           console.log('📊 Created paymaster data:', paymasterData.slice(0, 10) + '...');
           
-          return paymasterData as unknown as GetPaymasterDataReturnType;
+          // Format the paymasterAndData field - this is crucial for the bundler
+          // It should be formatted as: paymasterAddress + paymasterData (without 0x prefix)
+          const formattedPaymasterAndData = `0x${paymasterAddress.slice(2)}${paymasterData.slice(2)}` as Hex;
+          console.log('🔑 Formatted paymasterAndData:', formattedPaymasterAndData.slice(0, 66) + '...');
+          
+          // Return paymaster data in the correct format expected by the bundler (single paymasterAndData field)
+          return {
+            paymasterAndData: formattedPaymasterAndData
+          };
         } catch (error) {
           console.error('❌ Error getting hash from paymaster:', error);
           // Provide detailed debug information
           console.error('Debug info:', {
             paymasterAddress,
-            userOpSender: packedUserOp.sender,
-            userOpNonce: packedUserOp.nonce.toString(),
+            userOpSender: params.sender,
+            userOpNonce: params.nonce?.toString() || 'undefined',
             validUntil: validUntil.toString(),
             validAfter: validAfter.toString(),
           });
           throw error;
         }
       } catch (outerError) {
-        console.error('❌❌ Critical error in paymaster sponsorUserOperation:', outerError);
+        console.error('❌❌ Critical error in paymaster getPaymasterData:', outerError);
         
         if (outerError instanceof Error) {
           const errorMessage = outerError.message || 'Unknown error';
           
           // Check for common error patterns
-          if (errorMessage.includes('length')) {
+          if (errorMessage.includes('length') || errorMessage.includes('bytes')) {
             console.error('⚠️ Length-related error detected. This usually indicates a problem with the format of one of the user operation fields.');
             console.error('⚠️ Check for undefined or null values in the user operation.');
           }
@@ -252,6 +192,36 @@ export function createCustomPaymasterClient(config: CustomPaymasterClientConfig)
         
         throw outerError;
       }
+    },
+    
+    // Stub implementation for getPaymasterStubData required by PaymasterActions interface
+    getPaymasterStubData: async (params: GetPaymasterStubDataParameters): Promise<GetPaymasterStubDataReturnType> => {
+      console.log('🔍 Paymaster getPaymasterStubData called for gas estimation', {
+        sender: params.sender,
+        chainId: params.chainId,
+        entryPointAddress: params.entryPointAddress
+      });
+      
+      // Generate empty paymaster data for the stub (for gas estimation)
+      const emptyPaymasterData = '0x' + '00'.repeat(64) as Hex;
+      
+      console.log('📈 Generating stub paymaster data with:', {
+        paymasterAddress,
+        verificationGasLimit: '75000n',
+        postOpGasLimit: '120000n'
+      });
+      
+      // Using the alternative format with just paymasterAndData
+      // This is simpler and avoids type issues
+      const paymasterAndData = `0x${paymasterAddress.slice(2)}${'00'.repeat(64)}` as Hex;
+      
+      return {
+        paymasterAndData,
+        sponsor: {
+          name: 'Custom Sponsor Paymaster'
+        },
+        isFinal: true
+      };
     }
-  };
+  }));
 } 

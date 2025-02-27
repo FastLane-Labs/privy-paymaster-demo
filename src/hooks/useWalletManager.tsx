@@ -282,26 +282,35 @@ export function useWalletManager() {
                   // Only now try to setup the bundler with paymaster - using the current sponsor wallet variable
                   if (currentSponsorWallet && paymaster) {
                     console.log('📝 STEP 8A: Creating custom paymaster client...');
-                    const paymasterClient = createCustomPaymasterClient({
-                      paymasterAddress: paymaster,
-                      paymasterAbi: paymasterAbi,
-                      sponsorWallet: currentSponsorWallet,
-                    });
-                    
-                    console.log('📝 STEP 8B: Initializing bundler with paymaster...');
-                    const bundlerWithPaymaster = initBundlerWithPaymaster(
-                      simpleSmartAccount,
-                      client,
-                      paymasterClient
-                    );
-                    
-                    // Update the bundler to use the one with paymaster
-                    console.log('✅ STEP 8 COMPLETE: Using bundler with paymaster integration');
-                    setBundler(bundlerWithPaymaster);
+                    try {
+                      const paymasterClient = createCustomPaymasterClient({
+                        paymasterAddress: paymaster,
+                        paymasterAbi: paymasterAbi,
+                        sponsorWallet: currentSponsorWallet,
+                      });
+                      
+                      console.log('📝 STEP 8B: Initializing bundler with paymaster...');
+                      const bundlerWithPaymaster = initBundlerWithPaymaster(
+                        simpleSmartAccount,
+                        client,
+                        paymasterClient
+                      );
+                      
+                      // Update the bundler to use the one with paymaster integration
+                      console.log('✅ STEP 8 COMPLETE: Using bundler with paymaster integration');
+                      setBundler(bundlerWithPaymaster);
+                    } catch (paymasterError) {
+                      console.error('❌ Error setting up paymaster:', paymasterError);
+                      console.log('⚠️ Falling back to bundler without paymaster');
+                      // Fall back to the regular bundler without paymaster
+                      const regularBundler = initBundler(simpleSmartAccount, client);
+                      setBundler(regularBundler);
+                    }
                   } else {
-                    console.log('⚠️ STEP 8 ALTERNATE: No sponsor wallet or paymaster address available, using regular bundler');
-                    // Fall back to regular bundler if sponsor wallet not available
-                    setBundler(bundlerClient);
+                    console.log('⚠️ No sponsor wallet or paymaster address available, using bundler without paymaster');
+                    // Use the regular bundler without paymaster
+                    const regularBundler = initBundler(simpleSmartAccount, client);
+                    setBundler(regularBundler);
                   }
                   
                   console.log('🎉 INITIALIZATION COMPLETE: Account setup finished successfully');

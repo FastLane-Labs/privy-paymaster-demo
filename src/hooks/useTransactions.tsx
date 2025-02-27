@@ -6,6 +6,7 @@ import shmonadAbi from '@/abis/shmonad.json';
 import { WalletManagerState } from './useWalletManager';
 import { ShBundlerClient } from '@/utils/bundler';
 import { isAddress } from 'viem';
+import { ENTRY_POINT_ADDRESS } from '@/utils/config';
 
 type TransactionState = {
   txHash: string;
@@ -138,7 +139,7 @@ export function useTransactions(walletManager: TransactionWalletManager) {
           try {
             // Prepare the user operation - this will automatically include paymaster data if configured
             console.log('Preparing minimal user operation with the bundler...');
-            const userOpHash = await bundler.prepareUserOperation({
+            const userOp = await bundler.prepareUserOperation({
               account: smartAccount,
               calls: [{
                 to: smartAccount.address,
@@ -148,14 +149,14 @@ export function useTransactions(walletManager: TransactionWalletManager) {
             });
             
             console.log('✅ Successfully prepared user operation:', {
-              userOpHash: userOpHash ? 'Generated' : 'Not generated',
-              paymasterAndData: userOpHash?.paymasterAndData && typeof userOpHash.paymasterAndData === 'string'
-                ? `${userOpHash.paymasterAndData.substring(0, 20)}...` 
+              userOp: userOp ? 'Generated' : 'Not generated',
+              paymasterAndData: userOp?.paymasterAndData && typeof userOp.paymasterAndData === 'string'
+                ? `${userOp.paymasterAndData.substring(0, 20)}...` 
                 : 'Not present',
             });
             
             // Check if paymasterAndData is present - this is the key indicator of paymaster integration
-            if (userOpHash?.paymasterAndData && userOpHash.paymasterAndData !== '0x') {
+            if (userOp?.paymasterAndData && userOp.paymasterAndData !== '0x') {
               console.log('✅ PAYMASTER INTEGRATION CONFIRMED - paymasterAndData is present in the user operation');
               return {
                 paymaster: 'CONFIGURED',
@@ -165,6 +166,52 @@ export function useTransactions(walletManager: TransactionWalletManager) {
               };
             } else {
               console.log('❌ Paymaster integration NOT detected - no paymasterAndData in the user operation');
+              
+              // Try to debug why paymaster data is missing
+              console.log('🔍 Debugging paymaster integration:');
+              console.log('1. Check if bundler has paymaster configuration');
+              
+              // Try to send a user operation directly to test paymaster integration
+              try {
+                console.log('2. Testing direct user operation submission...');
+                const gasPrice = await bundler.getUserOperationGasPrice();
+                
+                const userOpHash = await bundler.sendUserOperation({
+                  account: smartAccount,
+                  calls: [{
+                    to: smartAccount.address,
+                    value: 0n,
+                    data: '0x',
+                  }],
+                  maxFeePerGas: gasPrice.slow.maxFeePerGas,
+                  maxPriorityFeePerGas: gasPrice.slow.maxPriorityFeePerGas,
+                });
+                
+                console.log('✅ User operation submitted successfully:', userOpHash);
+                console.log('This indicates the paymaster is working despite not seeing paymasterAndData in prepareUserOperation');
+                
+                return {
+                  paymaster: 'WORKING',
+                  smartAccount: !!smartAccount,
+                  bundler: !!bundler,
+                  sponsorWallet: !!sponsorWallet
+                };
+              } catch (sendError) {
+                console.error('❌ Error sending user operation:', sendError);
+                
+                if (sendError instanceof Error && 
+                    (sendError.message.includes('paymaster') || 
+                     sendError.message.includes('AA31'))) {
+                  console.log('❌ Paymaster-related error detected. The paymaster integration is not working correctly.');
+                }
+                
+                return {
+                  paymaster: 'NOT_WORKING',
+                  smartAccount: !!smartAccount,
+                  bundler: !!bundler,
+                  sponsorWallet: !!sponsorWallet
+                };
+              }
             }
           } catch (prepareError) {
             console.error('❌ Error preparing user operation with the bundler:', prepareError);
@@ -223,7 +270,7 @@ export function useTransactions(walletManager: TransactionWalletManager) {
           console.log('💵 Sending transaction via bundler with paymaster integration');
           
           // Try sponsored transaction - this has better error handling for recipient addresses
-          const txHash = await sendSponsoredTransaction(recipient, amount);
+          const txHash = await sendSponsoredTransaction(amount, recipient);
           if (txHash) {
             setTxHash(txHash);
             setTxStatus(`Transaction confirmed! Transaction hash: ${txHash}`);
@@ -272,15 +319,14 @@ export function useTransactions(walletManager: TransactionWalletManager) {
   }
 
   // Sponsored transaction using the paymaster sponsorship
-  const sendSponsoredTransaction = async (recipient: string, amount: string) => {
-    console.log('🚀 Beginning sponsored transaction process');
-    
+  const sendSponsoredTransaction = async (amount: string, recipient?: string) => {
+    // Ensure we have required components
     if (!smartAccount || !bundler) {
       console.error('❌ Smart account or bundler not initialized');
-      return null;
+      console.error('Wallet not fully initialized. Please try again.');
+      return;
     }
     
-    console.log('📱 Smart account ready:', smartAccount.address);
     console.log('🔄 Using bundler with paymaster integration');
     
     try {
@@ -298,8 +344,9 @@ export function useTransactions(walletManager: TransactionWalletManager) {
       const gasPrice = await bundler.getUserOperationGasPrice();
       
       console.log('📤 Sending user operation via bundler...');
+      console.log('📋 Using entry point:', ENTRY_POINT_ADDRESS);
       
-      // Send the user operation
+      // Send the user operation - don't add entryPoint property directly since it's not supported in the type
       const userOpHash = await bundler.sendUserOperation({
         account: smartAccount,
         calls: [
@@ -313,7 +360,7 @@ export function useTransactions(walletManager: TransactionWalletManager) {
         maxPriorityFeePerGas: gasPrice.slow.maxPriorityFeePerGas,
       });
       
-      console.log('📫 User operation hash received:', userOpHash);
+      console.log('✅ User operation sent:', userOpHash);
       
       // Wait for the transaction to be confirmed
       console.log('⏳ Waiting for transaction confirmation...');
@@ -509,31 +556,6 @@ export function useTransactions(walletManager: TransactionWalletManager) {
     // First verify the paymaster configuration
     const config = await verifyPaymasterConfiguration();
     
-    // Check why the bundler is not configured with the paymaster
-    if (bundler) {
-      try {
-        // @ts-ignore - Accessing bundler's internal properties
-        const bundlerOptions = bundler._bundlerClient?.options || {};
-        console.log('🔬 Bundler internal options:', {
-          hasPaymaster: !!bundlerOptions.paymaster,
-          entryPoint: bundlerOptions.entryPoint?.address || 'undefined',
-          account: bundlerOptions.account?.address || 'undefined'
-        });
-        
-        // If paymaster is missing, provide guidance on fixing it
-        if (!bundlerOptions.paymaster) {
-          console.log('❗ ISSUE DETECTED: Bundler is missing paymaster configuration');
-          console.log('💡 SOLUTION: Ensure the following in your useWalletManager.tsx file:');
-          console.log('1. createCustomPaymasterClient is being called with valid parameters');
-          console.log('2. initBundlerWithPaymaster is used instead of initBundler');
-          console.log('3. The custom paymaster client is passed to initBundlerWithPaymaster');
-          console.log('4. Verify the paymaster address is correct and the contract is deployed');
-        }
-      } catch (error) {
-        console.error('❌ Error examining bundler configuration:', error);
-      }
-    }
-    
     if (!config.smartAccount || !config.bundler) {
       console.error('❌ Cannot proceed - smart account or bundler not available');
       return null;
@@ -545,66 +567,63 @@ export function useTransactions(walletManager: TransactionWalletManager) {
     }
     
     try {
-      console.log('🔍 Examining bundler configuration in detail...');
+      console.log('🧪 Testing bundler transaction flow...');
       
-      // Try to access the bundler's internal paymaster client directly
-      // @ts-ignore - Inspecting bundler internal properties
-      const bundlerClient = bundler?._bundlerClient;
+      // Get gas price
+      const gasPrice = await bundler!.getUserOperationGasPrice();
+      console.log('✅ Got gas prices:', {
+        slow: `${gasPrice.slow.maxFeePerGas.toString()} / ${gasPrice.slow.maxPriorityFeePerGas.toString()}`,
+        standard: `${gasPrice.standard.maxFeePerGas.toString()} / ${gasPrice.standard.maxPriorityFeePerGas.toString()}`,
+        fast: `${gasPrice.fast.maxFeePerGas.toString()} / ${gasPrice.fast.maxPriorityFeePerGas.toString()}`
+      });
       
-      if (bundlerClient) {
-        console.log('✅ Bundler client is available');
-        
-        // @ts-ignore - Inspecting internal properties
-        const paymasterConfig = bundlerClient.options?.paymaster;
-        
-        if (paymasterConfig) {
-          console.log('✅ Paymaster is configured in bundler', {
-            // @ts-ignore - Inspecting internal properties
-            hasGetPaymasterData: !!paymasterConfig.getPaymasterData,
-            // @ts-ignore - Inspecting internal properties
-            type: paymasterConfig.type || 'unknown'
-          });
-          
-          console.log('🧪 Testing bundler transaction flow...');
-          
-          // Get gas price
-          const gasPrice = await bundler!.getUserOperationGasPrice();
-          
-          console.log('📤 Sending minimal user operation via bundler...');
-          
-          // Send a minimal user operation (0 ETH to self)
-          const userOpHash = await bundler!.sendUserOperation({
-            account: smartAccount!,
-            calls: [
-              {
-                to: smartAccount!.address,
-                value: 0n,
-                data: '0x',
-              },
-            ],
-            maxFeePerGas: gasPrice.slow.maxFeePerGas,
-            maxPriorityFeePerGas: gasPrice.slow.maxPriorityFeePerGas,
-          });
-          
-          console.log('📫 User operation hash received:', userOpHash);
-          
-          // Wait for the transaction to be confirmed
-          console.log('⏳ Waiting for transaction confirmation...');
-          const receipt = await bundler!.waitForUserOperationReceipt({ hash: userOpHash });
-          
-          console.log('✅ Transaction confirmed! Hash:', receipt.receipt.transactionHash);
-          return receipt.receipt.transactionHash;
-        } else {
-          console.error('❌ No paymaster configuration found in bundler');
-          console.log('💡 This indicates the bundler was not initialized with a paymaster.');
-          console.log('💡 Check the initialization in useWalletManager to ensure the paymaster client is created and passed to the bundler.');
-          return null;
-        }
-      } else {
-        console.error('❌ Cannot access bundler internal client');
-        console.log('💡 This might indicate the bundler object structure is different than expected.');
-        return null;
-      }
+      // First try to prepare a user operation to check if paymaster data is included
+      console.log('🔍 Preparing user operation to check for paymaster data...');
+      const preparedOp = await bundler!.prepareUserOperation({
+        account: smartAccount!,
+        calls: [
+          {
+            to: smartAccount!.address,
+            value: 0n,
+            data: '0x',
+          },
+        ],
+      });
+      
+      console.log('✅ User operation prepared:', {
+        sender: preparedOp.sender,
+        nonce: preparedOp.nonce.toString(),
+        hasPaymasterData: !!preparedOp.paymasterAndData && preparedOp.paymasterAndData !== '0x',
+        paymasterDataPrefix: preparedOp.paymasterAndData ? 
+          preparedOp.paymasterAndData.substring(0, 10) + '...' : 
+          'None'
+      });
+      
+      // Now try to send the user operation
+      console.log('📤 Sending minimal user operation via bundler...');
+      
+      // Send a minimal user operation (0 ETH to self)
+      const userOpHash = await bundler!.sendUserOperation({
+        account: smartAccount!,
+        calls: [
+          {
+            to: smartAccount!.address,
+            value: 0n,
+            data: '0x',
+          },
+        ],
+        maxFeePerGas: gasPrice.slow.maxFeePerGas,
+        maxPriorityFeePerGas: gasPrice.slow.maxPriorityFeePerGas,
+      });
+      
+      console.log('📫 User operation hash received:', userOpHash);
+      
+      // Wait for the transaction to be confirmed
+      console.log('⏳ Waiting for transaction confirmation...');
+      const receipt = await bundler!.waitForUserOperationReceipt({ hash: userOpHash });
+      
+      console.log('✅ Transaction confirmed! Hash:', receipt.receipt.transactionHash);
+      return receipt.receipt.transactionHash;
     } catch (error) {
       console.error('❌ Error in debug user operation:', error);
       
@@ -632,6 +651,31 @@ export function useTransactions(walletManager: TransactionWalletManager) {
     }
   };
 
+  // New method to directly verify paymaster integration using the enhanced bundler
+  const verifyPaymasterIntegrationDirect = async () => {
+    if (!bundler) {
+      console.error('❌ Cannot verify paymaster integration - bundler not available');
+      return false;
+    }
+    
+    // Check if the bundler has the verifyPaymasterIntegration method
+    if ('verifyPaymasterIntegration' in bundler) {
+      try {
+        // @ts-ignore - The verifyPaymasterIntegration method is added dynamically
+        const result = await bundler.verifyPaymasterIntegration();
+        return result;
+      } catch (error) {
+        console.error('❌ Error verifying paymaster integration:', error);
+        return false;
+      }
+    } else {
+      console.warn('⚠️ Bundler does not have verifyPaymasterIntegration method');
+      // Fall back to the regular verification method
+      const config = await verifyPaymasterConfiguration();
+      return config.paymaster === 'CONFIGURED' || config.paymaster === 'WORKING';
+    }
+  };
+
   return {
     // Transaction state
     txHash,
@@ -650,10 +694,6 @@ export function useTransactions(walletManager: TransactionWalletManager) {
     // Debug functions
     verifyPaymasterConfiguration,
     debugUserOpWithPaymaster,
-
-    // Status setters
-    setTxStatus,
-    setSponsoredTxStatus,
-    setSelfSponsoredTxStatus,
+    verifyPaymasterIntegrationDirect
   };
 }

@@ -14,10 +14,16 @@ export default function BondMonForm({ bondedShmon, onBond, loading }: BondMonFor
   const [bondTxStatus, setBondTxStatus] = useState('');
   const [bondTxHash, setBondTxHash] = useState('');
   const isBonded = bondedShmon !== '0';
-  const isError =
-    bondTxStatus.toLowerCase().includes('error') ||
-    bondTxStatus.toLowerCase().includes('failed') ||
-    bondTxStatus.toLowerCase().includes('invalid');
+  
+  // Check if the status indicates an error or user rejection
+  const isError = bondTxStatus.toLowerCase().includes('error') || 
+                 bondTxStatus.toLowerCase().includes('failed') || 
+                 bondTxStatus.toLowerCase().includes('invalid');
+  
+  // Specifically check for user rejection
+  const isUserRejection = bondTxStatus.toLowerCase().includes('user rejected') || 
+                         bondTxStatus.toLowerCase().includes('user denied') ||
+                         bondTxStatus.toLowerCase().includes('user cancelled');
 
   const copyErrorToClipboard = () => {
     if (bondTxStatus) {
@@ -41,6 +47,30 @@ export default function BondMonForm({ bondedShmon, onBond, loading }: BondMonFor
     ? bondTxStatus.replace(errorCodeRegex, '<span class="font-mono bg-red-100 px-1 rounded">$1</span>')
     : '';
 
+  // Helper function to handle transaction errors
+  const handleTransactionError = (error: unknown) => {
+    console.error('Bond transaction error:', error);
+    
+    if (error instanceof Error) {
+      const errorMessage = error.message;
+      
+      // Check for user rejection patterns in the error message
+      if (
+        errorMessage.includes('User rejected') || 
+        errorMessage.includes('User denied') || 
+        errorMessage.includes('User cancelled') ||
+        errorMessage.includes('rejected the request')
+      ) {
+        setBondTxStatus('Transaction cancelled: You rejected the transaction request.');
+      } else {
+        // For other errors, show the error message
+        setBondTxStatus(`Error: ${errorMessage}`);
+      }
+    } else {
+      setBondTxStatus('An unknown error occurred');
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBondTxStatus('Preparing to bond MON to shMON...');
@@ -50,11 +80,20 @@ export default function BondMonForm({ bondedShmon, onBond, loading }: BondMonFor
         setBondTxStatus(`Transaction confirmed! Transaction hash: ${result.transactionHash}`);
       }
     } catch (error) {
-      if (error instanceof Error) {
-        setBondTxStatus(`Error: ${error.message}`);
-      } else {
-        setBondTxStatus('An unknown error occurred');
+      handleTransactionError(error);
+    }
+  };
+
+  const handleBondMore = async (e: React.MouseEvent) => {
+    e.preventDefault(); 
+    setBondTxStatus('Preparing to bond more MON to shMON...');
+    try {
+      const result = await onBond(bondAmount);
+      if (result && result.transactionHash) {
+        setBondTxStatus(`Transaction confirmed! Transaction hash: ${result.transactionHash}`);
       }
+    } catch (error) {
+      handleTransactionError(error);
     }
   };
 
@@ -95,22 +134,7 @@ export default function BondMonForm({ bondedShmon, onBond, loading }: BondMonFor
               You can now use self-sponsored transactions with your bonded shMON.
             </p>
             <button
-              onClick={async (e) => { 
-                e.preventDefault(); 
-                setBondTxStatus('Preparing to bond more MON to shMON...');
-                try {
-                  const result = await onBond(bondAmount);
-                  if (result && result.transactionHash) {
-                    setBondTxStatus(`Transaction confirmed! Transaction hash: ${result.transactionHash}`);
-                  }
-                } catch (error) {
-                  if (error instanceof Error) {
-                    setBondTxStatus(`Error: ${error.message}`);
-                  } else {
-                    setBondTxStatus('An unknown error occurred');
-                  }
-                }
-              }}
+              onClick={handleBondMore}
               className="mt-3 px-4 py-2 bg-orange-500 text-white rounded hover:bg-orange-600 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
               disabled={loading}
             >
@@ -156,12 +180,12 @@ export default function BondMonForm({ bondedShmon, onBond, loading }: BondMonFor
       </div>
 
       {bondTxStatus && (
-        <div className={`mt-4 ${isError ? 'text-red-600' : 'text-green-600'} bg-white p-3 rounded-lg shadow-sm`}>
+        <div className={`mt-4 ${isUserRejection ? 'text-amber-600' : isError ? 'text-red-600' : 'text-green-600'} bg-white p-3 rounded-lg shadow-sm`}>
           <div className="flex items-center gap-2 mb-1">
             <p>
               <strong>Status:</strong>
             </p>
-            {isError && (
+            {isError && !isUserRejection && (
               <button
                 onClick={copyErrorToClipboard}
                 className="text-xs px-2 py-1 bg-gray-200 hover:bg-gray-300 rounded"
@@ -192,7 +216,18 @@ export default function BondMonForm({ bondedShmon, onBond, loading }: BondMonFor
             </div>
           )}
 
-          {isError && (
+          {isUserRejection && (
+            <div className="mt-2 p-2 bg-amber-50 border border-amber-200 rounded">
+              <p className="text-sm text-amber-800">
+                <strong>Transaction Cancelled</strong>
+              </p>
+              <p className="text-sm text-amber-700 mt-1">
+                You cancelled the transaction. You can try again when you're ready.
+              </p>
+            </div>
+          )}
+
+          {isError && !isUserRejection && (
             <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded">
               <p className="text-sm text-red-800">
                 <strong>Troubleshooting:</strong>

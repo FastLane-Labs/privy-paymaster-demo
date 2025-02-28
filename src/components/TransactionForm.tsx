@@ -35,10 +35,18 @@ export default function TransactionForm({
   const [recipient, setRecipient] = useState('');
   const [amount, setAmount] = useState(defaultAmount);
   const [copied, setCopied] = useState(false);
+  
+  // Check if the status indicates an error
   const isError =
     txStatus?.toLowerCase().includes('error') ||
     txStatus?.toLowerCase().includes('failed') ||
     txStatus?.toLowerCase().includes('invalid');
+    
+  // Specifically check for user rejection
+  const isUserRejection = txStatus?.toLowerCase().includes('user rejected') || 
+                         txStatus?.toLowerCase().includes('user denied') ||
+                         txStatus?.toLowerCase().includes('user cancelled') ||
+                         txStatus?.toLowerCase().includes('rejected the request');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -186,12 +194,12 @@ export default function TransactionForm({
         )}
 
         {txStatus && (
-          <div className={`mt-2 ${isError ? 'text-red-600' : ''}`}>
+          <div className={`mt-2 ${isUserRejection ? 'text-amber-600' : isError ? 'text-red-600' : ''}`}>
             <div className="flex items-center gap-2">
               <p>
                 <strong>Status:</strong>
               </p>
-              {isError && (
+              {isError && !isUserRejection && (
                 <button
                   onClick={copyErrorToClipboard}
                   className="text-xs px-2 py-1 bg-gray-200 hover:bg-gray-300 rounded"
@@ -206,7 +214,18 @@ export default function TransactionForm({
               className="break-words mt-1"
             />
 
-            {isError && (
+            {isUserRejection && (
+              <div className="mt-2 p-2 bg-amber-50 border border-amber-200 rounded">
+                <p className="text-sm text-amber-800">
+                  <strong>Transaction Cancelled</strong>
+                </p>
+                <p className="text-sm text-amber-700 mt-1">
+                  You cancelled the transaction. You can try again when you're ready.
+                </p>
+              </div>
+            )}
+
+            {isError && !isUserRejection && (
               <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded">
                 <p className="text-sm text-red-800">
                   <strong>Troubleshooting:</strong>

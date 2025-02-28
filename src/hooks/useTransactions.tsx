@@ -47,6 +47,19 @@ function handleTransactionError(error: unknown, setErrorStatus: (status: string)
   if (error instanceof Error) {
     const errorMessage = error.message;
 
+    // Check for user rejection first
+    if (
+      errorMessage.includes('User rejected') || 
+      errorMessage.includes('user rejected') || 
+      errorMessage.includes('User denied') || 
+      errorMessage.includes('user denied') ||
+      errorMessage.includes('cancelled by user') ||
+      errorMessage.includes('canceled by user')
+    ) {
+      setErrorStatus('Transaction canceled by user.');
+      return;
+    }
+
     // Try to extract JSON error details if present
     try {
       // Look for JSON-like details in the error message
@@ -549,8 +562,28 @@ export function useTransactions(walletManager: TransactionWalletManager) {
       // Return receipt to indicate success
       return receipt;
     } catch (error) {
+      // Use the handleTransactionError helper function for consistent error handling
       handleTransactionError(error, setTxStatus);
       setLoading?.(false);
+      
+      // Log the error for debugging purposes
+      logger.error('Bond transaction error:', error);
+      
+      // Check if this is a user rejection error and handle it specifically
+      if (error instanceof Error) {
+        const errorMessage = error.message.toLowerCase();
+        if (
+          errorMessage.includes('user rejected') || 
+          errorMessage.includes('user denied') || 
+          errorMessage.includes('cancelled by user') ||
+          errorMessage.includes('canceled by user') ||
+          errorMessage.includes('rejected the request')
+        ) {
+          // Set a more user-friendly message for rejection
+          setTxStatus('Transaction canceled: You rejected the bond transaction request.');
+        }
+      }
+      
       return null;
     }
   }

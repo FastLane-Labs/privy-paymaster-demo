@@ -1,5 +1,5 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { initContract, paymasterMode } from '../../utils/contracts';
+import { paymasterMode } from '../../utils/contracts';
 import { toPackedUserOperation, UserOperation } from 'viem/account-abstraction';
 import { createWalletClient, http, type Hex, type Address, createPublicClient } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -10,34 +10,8 @@ import { monadTestnet } from 'viem/chains';
 import { entryPoint07Address } from 'viem/account-abstraction';
 import { logger } from '../../utils/logger';
 
-// Initialization state tracking
-let PAYMASTER_INITIALIZING = false;
-let INITIALIZATION_ERROR: Error | null = null;
-let INITIALIZATION_ATTEMPTS = 0;
-const MAX_INITIALIZATION_ATTEMPTS = 5;
-
-// Define non-zero placeholder addresses to use when the real paymaster isn't ready
-const TEMP_PAYMASTER_ADDRESS = '0x1111111111111111111111111111111100000123' as Address;
-const STUB_PAYMASTER_ADDRESS = '0x2222222222222222222222222222222200000456' as Address;
-
 // Use a backend-specific RPC URL (not prefixed with NEXT_PUBLIC_)
 const BACKEND_RPC_URL = process.env.RPC_URL || 'https://rpc.ankr.com/monad_testnet';
-logger.info('Backend using RPC URL', BACKEND_RPC_URL);
-logger.debug('Environment variables available', {
-  RPC_URL: process.env.RPC_URL ? 'defined' : 'undefined',
-  SPONSOR_WALLET_PRIVATE_KEY: process.env.SPONSOR_WALLET_PRIVATE_KEY ? 'defined' : 'undefined',
-  NODE_ENV: process.env.NODE_ENV
-});
-
-const SPONSOR_PRIVATE_KEY = process.env.SPONSOR_WALLET_PRIVATE_KEY;
-if (!SPONSOR_PRIVATE_KEY) {
-  logger.error('SPONSOR_WALLET_PRIVATE_KEY environment variable is not set');
-  logger.error('Please add it to your .env.local file or set it in your environment');
-  logger.error('This is required for the paymaster to work properly');
-}
-
-// Define the paymaster address - retrieved from the address hub contract
-let PAYMASTER_ADDRESS: Address | undefined;
 
 // Create backend-specific public client
 const backendPublicClient = createPublicClient({
@@ -46,6 +20,12 @@ const backendPublicClient = createPublicClient({
 });
 
 // Create a sponsor wallet client using the private key
+const SPONSOR_PRIVATE_KEY = process.env.SPONSOR_WALLET_PRIVATE_KEY;
+if (!SPONSOR_PRIVATE_KEY) {
+  logger.error('SPONSOR_WALLET_PRIVATE_KEY environment variable is not set');
+  logger.error('This is required for the paymaster to work properly');
+}
+
 const sponsorAccount = SPONSOR_PRIVATE_KEY 
   ? privateKeyToAccount(SPONSOR_PRIVATE_KEY as Hex) 
   : undefined;
@@ -58,148 +38,149 @@ const sponsorWallet = sponsorAccount
     })
   : undefined;
 
-// Initialize the address hub contract and get the paymaster address
-async function initializePaymaster() {
-  if (PAYMASTER_INITIALIZING) {
-    logger.info('Paymaster already initializing, skipping duplicate initialization');
-    return; // Already initializing
+/**
+ * Helper: Read paymaster address directly from the contract
+ */
+async function getPaymasterAddress(): Promise<Address | null> {
+  if (!ADDRESS_HUB) {
+    logger.error('ADDRESS_HUB is not defined. Please check your environment variables.');
+    return null;
   }
-  
-  if (PAYMASTER_ADDRESS) {
-    logger.info('Paymaster already initialized', PAYMASTER_ADDRESS);
-    return; // Already initialized
-  }
-  
-  PAYMASTER_INITIALIZING = true;
-  INITIALIZATION_ATTEMPTS++;
-  
+
   try {
-    logger.info(`Initializing Address Hub contract to get paymaster address (attempt ${INITIALIZATION_ATTEMPTS}/${MAX_INITIALIZATION_ATTEMPTS})`);
-    logger.debug('Initialization details', {
-      addressHub: ADDRESS_HUB,
-      rpcUrl: BACKEND_RPC_URL
-    });
+    const paymasterAddress = await backendPublicClient.readContract({
+      address: ADDRESS_HUB,
+      abi: addressHubAbi,
+      functionName: 'paymaster4337',
+      args: []
+    }) as Address;
     
-    if (!ADDRESS_HUB) {
-      throw new Error('ADDRESS_HUB is not defined. Please check your environment variables.');
+    if (!paymasterAddress || paymasterAddress === '0x0000000000000000000000000000000000000000') {
+      logger.error('Invalid paymaster address read from contract');
+      return null;
     }
     
-    if (!SPONSOR_PRIVATE_KEY) {
-      throw new Error('SPONSOR_WALLET_PRIVATE_KEY is not defined. Please check your environment variables.');
-    }
-    
-    // Log some details about the backend client to help diagnose issues
-    logger.debug('Creating backend public client for chain', {
-      name: monadTestnet.name,
-      id: monadTestnet.id
-    });
-    
-    // Create the address hub contract instance
-    const addressHubContract = await initContract(
-      ADDRESS_HUB,
-      addressHubAbi,
-      backendPublicClient
-    );
-    
-    if (!addressHubContract) {
-      throw new Error('Failed to initialize Address Hub contract');
-    }
-    
-    logger.info('Address Hub contract initialized successfully');
-    
-    // Read the paymaster address from the contract
-    logger.info('Reading paymaster address from AddressHub contract...');
-    const paymasterAddress = (await addressHubContract.read.paymaster4337([])) as Address;
-    logger.debug('Raw paymaster address received', paymasterAddress);
-    
-    // Validate the paymaster address
-    if (!paymasterAddress) {
-      throw new Error('Null or undefined paymaster address returned from AddressHub');
-    }
-    
-    if (paymasterAddress === '0x0000000000000000000000000000000000000000') {
-      throw new Error('Zero address returned as paymaster address from AddressHub. This indicates the AddressHub contract may not be properly configured.');
-    }
-    
-    logger.info('Got valid paymaster address', paymasterAddress);
-    
-    // Store the address globally
-    PAYMASTER_ADDRESS = paymasterAddress;
-    
-    // Initialize the paymaster contract for faster access later
-    logger.info('Initializing paymaster contract...');
-    const paymasterContract = await initContract(
-      PAYMASTER_ADDRESS as Address,
-      paymasterAbi,
-      backendPublicClient
-    );
-    
-    if (!paymasterContract) {
-      throw new Error(`Failed to initialize paymaster contract at address ${PAYMASTER_ADDRESS}`);
-    }
-    
-    // Try to read something from the paymaster contract to verify it works
-    try {
-      logger.debug('Verifying paymaster contract by reading from it...');
-      const owner = await paymasterContract.read.owner([]);
-      logger.info('Paymaster contract verified, owner', owner);
-    } catch (readError) {
-      logger.warn('Could not read from paymaster contract, but proceeding anyway', readError);
-    }
-    
-    logger.info('Successfully initialized both Address Hub and Paymaster contracts');
-    INITIALIZATION_ERROR = null;
+    return paymasterAddress;
   } catch (error) {
-    logger.error('Error initializing paymaster', error);
-    INITIALIZATION_ERROR = error as Error;
-    
-    // If we haven't exceeded max attempts, schedule a retry
-    if (INITIALIZATION_ATTEMPTS < MAX_INITIALIZATION_ATTEMPTS) {
-      logger.info(`Scheduling retry in ${INITIALIZATION_ATTEMPTS * 2} seconds...`);
-      setTimeout(() => {
-        PAYMASTER_INITIALIZING = false; // Reset flag to allow retry
-        initializePaymaster(); // Retry initialization
-      }, INITIALIZATION_ATTEMPTS * 2000); // Exponential backoff
-    } else {
-      logger.error(`Failed to initialize paymaster after ${MAX_INITIALIZATION_ATTEMPTS} attempts.`);
-      logger.error('Last error:', INITIALIZATION_ERROR.message);
-      logger.error('Check your ADDRESS_HUB environment variable and make sure the contract is deployed correctly.');
-      logger.error('Check your SPONSOR_WALLET_PRIVATE_KEY environment variable is correct.');
-      
-      // Force a refresh after a longer timeout
-      setTimeout(() => {
-        logger.info('Forcing paymaster initialization refresh after timeout...');
-        PAYMASTER_INITIALIZING = false;
-        INITIALIZATION_ATTEMPTS = 0;
-        initializePaymaster();
-      }, 30000); // Try again after 30 seconds
-    }
-  } finally {
-    // Even if we fail, reset the initializing flag to allow retries
-    if (PAYMASTER_ADDRESS) {
-      logger.info('Paymaster initialization successful, address:', PAYMASTER_ADDRESS);
-      PAYMASTER_INITIALIZING = false; // Only reset if successful
-    } else {
-      // Reset after a delay to prevent too frequent retries
-      setTimeout(() => {
-        logger.info('Resetting PAYMASTER_INITIALIZING flag after timeout');
-        PAYMASTER_INITIALIZING = false;
-      }, 5000);
-    }
+    logger.error('Error reading paymaster address:', error);
+    return null;
   }
 }
 
-// Start initialization immediately
-initializePaymaster();
-// Schedule periodic refresh of paymaster address
-setInterval(() => {
-  // Only try to refresh if not currently initializing and either not initialized or previously errored
-  if (!PAYMASTER_INITIALIZING && (!PAYMASTER_ADDRESS || INITIALIZATION_ERROR)) {
-    logger.info('Attempting periodic refresh of paymaster address...');
-    INITIALIZATION_ATTEMPTS = 0; // Reset attempt counter for refresh
-    initializePaymaster();
+/**
+ * Helper: Generate and sign paymaster data for a user operation
+ */
+async function signUserOperationWithSponsor(
+  userOperation: UserOperation,
+  validUntil: bigint,
+  validAfter: bigint
+): Promise<{ 
+  signature: Hex, 
+  paymasterAddress: Address,
+  paymasterData: Hex
+} | null> {
+  try {
+    // Get paymaster address
+    const paymasterAddress = await getPaymasterAddress();
+    if (!paymasterAddress) {
+      logger.error('No paymaster address available for signing');
+      return null;
+    }
+    
+    // Validate sponsor wallet
+    if (!sponsorWallet || !sponsorAccount) {
+      logger.error('No sponsor wallet available');
+      return null;
+    }
+    
+    // Get hash to sign directly from the contract
+    const hash = await backendPublicClient.readContract({
+      address: paymasterAddress,
+      abi: paymasterAbi,
+      functionName: 'getHash',
+      args: [
+        toPackedUserOperation(userOperation),
+        validUntil,
+        validAfter
+      ]
+    }) as Hex;
+    
+    if (!hash) {
+      throw new Error(`Invalid hash returned from paymaster contract ${paymasterAddress}`);
+    }
+    
+    // Sign hash with sponsor wallet
+    const signature = await sponsorWallet.signMessage({
+      account: sponsorAccount,
+      message: { raw: hash },
+    });
+    
+    logger.info('Generated signature for user operation', { 
+      sender: userOperation.sender,
+      signature: signature.substring(0, 10) + '...'
+    });
+
+    // Create paymaster data with the signature
+    const paymasterData = paymasterMode(
+      "sponsor",
+      validUntil,
+      validAfter,
+      signature as Hex,
+      sponsorWallet
+    ) as Hex;
+    
+    return { 
+      signature: signature as Hex, 
+      paymasterAddress,
+      paymasterData
+    };
+  } catch (error) {
+    logger.error('Failed to sign user operation with sponsor:', error);
+    return null;
   }
-}, 60000); // Check every minute
+}
+
+/**
+ * Helper: Classify and format error for consistent response
+ */
+function formatPaymasterError(error: any, id: any): any {
+  const errorMsg = error?.message || 'Unknown error';
+  
+  if (errorMsg.includes('insufficient') && errorMsg.includes('balance')) {
+    return {
+      jsonrpc: '2.0',
+      id,
+      error: { 
+        code: -32010, 
+        message: 'Paymaster has insufficient balance',
+        data: errorMsg
+      }
+    };
+  }
+  
+  if (errorMsg.includes('policy') || errorMsg.includes('limit')) {
+    return {
+      jsonrpc: '2.0',
+      id,
+      error: { 
+        code: -32011, 
+        message: 'Policy limit exceeded',
+        data: errorMsg
+      }
+    };
+  }
+  
+  // Default error
+  return {
+    jsonrpc: '2.0',
+    id,
+    error: { 
+      code: -32603, 
+      message: 'Paymaster internal error',
+      data: errorMsg
+    }
+  };
+}
 
 /**
  * JSON-RPC Handler for Paymaster methods
@@ -213,9 +194,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     const { jsonrpc, id, method, params } = req.body;
 
-    // Log the incoming request
-    logger.info(`Received RPC request for method: ${method}`);
-
     // Validate the JSON-RPC request
     if (jsonrpc !== '2.0' || !id || !method) {
       return res.status(400).json({
@@ -223,12 +201,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         id: id || null,
         error: { code: -32600, message: 'Invalid request' }
       });
-    }
-
-    // Try to initialize paymaster if not already initialized
-    if (!PAYMASTER_ADDRESS && !PAYMASTER_INITIALIZING) {
-      logger.info('Paymaster not initialized yet, attempting initialization...');
-      await initializePaymaster();
     }
 
     // Handle different RPC methods
@@ -261,38 +233,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
  */
 async function handleGetPaymasterData(req: NextApiRequest, res: NextApiResponse) {
   const { id, params } = req.body;
-  const startTime = Date.now();
   
   try {
-    // Read critical environment variables directly in the request handler
-    // This ensures we get the latest values even in serverless environments
-    const hotPathPrivateKey = process.env.SPONSOR_WALLET_PRIVATE_KEY;
-    const hotPathRpcUrl = process.env.RPC_URL || BACKEND_RPC_URL;
-    const hotPathAddressHub = process.env.ADDRESS_HUB || ADDRESS_HUB;
-    
-    logger.debug('Hot path environment check', {
-      SPONSOR_KEY: hotPathPrivateKey ? 'defined' : 'undefined',
-      RPC_URL: hotPathRpcUrl ? 'defined' : 'undefined',
-      ADDRESS_HUB: hotPathAddressHub ? 'defined' : 'undefined'
-    });
-
     // Extract parameters
     const [userOperation, entryPointAddress, chainId, context] = params;
     
-    logger.info('Processing paymaster data request for sender:', userOperation.sender);
-    logger.info('Request received at:', new Date().toISOString());
-    logger.debug('User operation details', {
-      sender: userOperation.sender,
-      nonce: userOperation.nonce ? BigInt(userOperation.nonce).toString() : 'undefined',
-      callData: userOperation.callData?.substring(0, 10) + '...' || 'undefined',
-      entryPointAddress: entryPointAddress,
-      chainId: chainId
-    });
-    
     // Detect EntryPoint version based on the address
-    // Match the entryPointAddress with the entryPoint07Address
     const isEntryPointV07 = entryPointAddress == entryPoint07Address;
-    logger.info(`Detected EntryPoint version: ${isEntryPointV07 ? 'v0.7' : 'v0.6'}`);
     
     // QUICK VALIDATION - must respond fast to avoid timeouts
     if (!userOperation || !userOperation.sender || !entryPointAddress || !chainId) {
@@ -307,183 +254,34 @@ async function handleGetPaymasterData(req: NextApiRequest, res: NextApiResponse)
       });
     }
     
-    // If hot path private key is available but global one isn't, create the sponsor account on demand
-    let dynamicSponsorAccount = sponsorAccount;
-    let dynamicSponsorWallet = sponsorWallet;
-    
-    if (hotPathPrivateKey && !dynamicSponsorAccount) {
-      logger.info('Creating sponsor account on hot path with fresh private key');
-      try {
-        dynamicSponsorAccount = privateKeyToAccount(hotPathPrivateKey as Hex);
-        dynamicSponsorWallet = createWalletClient({
-          account: dynamicSponsorAccount,
-          chain: monadTestnet,
-          transport: http(hotPathRpcUrl)
-        });
-        logger.info('Successfully created sponsor wallet on hot path');
-      } catch (walletError) {
-        logger.error('Failed to create sponsor wallet on hot path:', walletError);
-      }
-    }
-    
-    // Start initialization if not already done (avoids edge cases where auto-init fails)
-    if (!PAYMASTER_ADDRESS && !PAYMASTER_INITIALIZING) {
-      // If we have hot path values that differ from globals, update globals
-      if (hotPathPrivateKey && hotPathPrivateKey !== SPONSOR_PRIVATE_KEY) {
-        logger.info('Updating sponsor private key from hot path value');
-        // We can't modify the const, but we can log that we detected a change
-      }
-      
-      INITIALIZATION_ATTEMPTS = 0; // Reset for fresh start
-      initializePaymaster();
-    }
-    
-    // Use dynamic wallet if available, otherwise fall back to global
-    const activeWallet = dynamicSponsorWallet || sponsorWallet;
-    const activeAccount = dynamicSponsorAccount || sponsorAccount;
-    
-    // We need either a paymaster address or a wallet to proceed
-    if (!PAYMASTER_ADDRESS && (!activeWallet || !activeAccount)) {
-      // If we have neither paymaster address nor wallet, that's a critical error
-      logger.error('Critical error: No paymaster address AND no sponsor wallet available');
-      logger.debug('Hot path environment check', {
-        SPONSOR_KEY: hotPathPrivateKey ? 'defined' : 'undefined',
-        ADDRESS_HUB: hotPathAddressHub ? 'defined' : 'undefined',
-        RPC_URL: hotPathRpcUrl ? 'defined' : 'undefined'
-      });
-      
-      return res.status(500).json({
-        jsonrpc: '2.0',
-        id,
-        error: { 
-          code: -32603, 
-          message: 'Both paymaster address and sponsor wallet unavailable',
-          data: {
-            initialization: PAYMASTER_INITIALIZING ? 'in progress' : 'not started',
-            attempts: INITIALIZATION_ATTEMPTS,
-            error: INITIALIZATION_ERROR ? INITIALIZATION_ERROR.message : undefined,
-            walletStatus: {
-              hotPathKey: !!hotPathPrivateKey,
-              globalKey: !!SPONSOR_PRIVATE_KEY,
-              dynamicWallet: !!dynamicSponsorWallet,
-              globalWallet: !!sponsorWallet
-            }
-          }
-        }
-      });
-    }
-    
-    // At this point, we've already validated that either paymaster address or wallet is available
-    // But let's add an explicit check just to be safe
-    if (!activeWallet || !activeAccount) {
-      return res.status(500).json({
-        jsonrpc: '2.0',
-        id,
-        error: { 
-          code: -32603, 
-          message: 'Sponsor wallet not available for signing',
-          data: 'Critical error: wallet was available earlier but is now undefined'
-        }
-      });
-    }
-    
-    // Try to use PAYMASTER_ADDRESS or read it on demand if not available
-    let effectivePaymasterAddress = PAYMASTER_ADDRESS;
-    if (!effectivePaymasterAddress && activeWallet) {
-      // Try to read it directly from the contract
-      const onDemandAddress = await readPaymasterAddressOnDemand(hotPathAddressHub as Address, activeWallet);
-      
-      if (onDemandAddress) {
-        effectivePaymasterAddress = onDemandAddress;
-        logger.info('Successfully read paymaster address on demand:', effectivePaymasterAddress);
-        
-        // Store it for future use
-        PAYMASTER_ADDRESS = effectivePaymasterAddress;
-        INITIALIZATION_ERROR = null;
-      }
-    }
-    
-    // If we still don't have a paymaster address but we have a wallet, we can't proceed with real data
-    // We need to return an error - we don't want to use dummy addresses for actual signed operations
-    if (!effectivePaymasterAddress) {
-      logger.error('Could not obtain a valid paymaster address');
-      return res.status(500).json({
-        jsonrpc: '2.0',
-        id,
-        error: { 
-          code: -32603, 
-          message: 'Failed to obtain a valid paymaster address',
-          data: {
-            initialization: PAYMASTER_INITIALIZING ? 'in progress' : 'not started',
-            attempts: INITIALIZATION_ATTEMPTS,
-            error: INITIALIZATION_ERROR ? INITIALIZATION_ERROR.message : undefined
-          }
-        }
-      });
-    }
-    
-    // FULL PROCESSING - We have everything we need, process the actual signature
     // Set validity window (valid for 1 hour)
     const currentTime = BigInt(Math.floor(Date.now() / 1000));
     const validUntil = currentTime + BigInt(3600);
     const validAfter = BigInt(0);
     
-    // Initialize the paymaster contract
-    const paymasterContract = await initContract(
-      effectivePaymasterAddress,
-      paymasterAbi,
-      backendPublicClient
+    // Generate and sign the paymaster data
+    const signResult = await signUserOperationWithSponsor(
+      userOperation as UserOperation, 
+      validUntil,
+      validAfter
     );
     
-    if (!paymasterContract) {
+    if (!signResult) {
       return res.status(500).json({
         jsonrpc: '2.0',
         id,
         error: { 
           code: -32603, 
-          message: 'Failed to initialize paymaster contract',
-          data: `Paymaster address: ${effectivePaymasterAddress}` 
+          message: 'Failed to sign user operation',
+          data: 'Error generating paymaster signature'
         }
       });
     }
-  
     
-    // Get the hash to sign from the paymaster contract
-    const hash = await paymasterContract.read.getHash([
-      toPackedUserOperation(userOperation as UserOperation),
-      validUntil,
-      validAfter,
-    ]) as Hex;
+    const { signature, paymasterAddress, paymasterData } = signResult;
     
-    if (!hash) {
-      return res.status(500).json({
-        jsonrpc: '2.0',
-        id,
-        error: { code: -32603, message: 'Paymaster returned null hash' }
-      });
-    }
-    
-    // Sign the hash with sponsor wallet
-    const sponsorSignature = await activeWallet.signMessage({
-      account: activeAccount,
-      message: { raw: hash as Hex },
-    });
-    
-    // Create paymaster data with the signature we obtained
-    const paymasterData = paymasterMode(
-      "sponsor",
-      validUntil,
-      validAfter,
-      sponsorSignature as Hex,
-      activeWallet
-    ) as Hex;
-    
-    // Format the paymasterAndData field
-    const formattedPaymasterAndData = `0x${effectivePaymasterAddress.slice(2)}${paymasterData.slice(2)}` as Hex;
-    
-    // Check how long we've been processing
-    const processingTime = Date.now() - startTime;
-    logger.info(`Full processing completed in ${processingTime}ms`);
+    // Format the combined paymasterAndData field if needed
+    const formattedPaymasterAndData = `0x${paymasterAddress.slice(2)}${paymasterData.slice(2)}` as Hex;
     
     // Return successful response based on EntryPoint version
     if (isEntryPointV07) {
@@ -492,10 +290,10 @@ async function handleGetPaymasterData(req: NextApiRequest, res: NextApiResponse)
         jsonrpc: '2.0',
         id,
         result: {
-          paymaster: effectivePaymasterAddress,
+          paymaster: paymasterAddress,
           paymasterData: paymasterData,
           sponsor: {
-            name: 'Custom Sponsor Paymaster'
+            name: 'Fastlane Paymaster'
           },
           isFinal: true // This is the final data with real signature
         }
@@ -512,24 +310,18 @@ async function handleGetPaymasterData(req: NextApiRequest, res: NextApiResponse)
           verificationGasLimit: userOperation.verificationGasLimit || '0x501ab',
           callGasLimit: userOperation.callGasLimit || '0x212df',
           sponsor: {
-            name: 'Custom Sponsor Paymaster'
+            name: 'Fastlane Paymaster'
           },
           isFinal: true // This is the final data with real signature
         }
       });
     }
   } catch (error) {
-    const processingTime = Date.now() - startTime;
-    logger.error(`Error in getPaymasterData after ${processingTime}ms:`, error);
-    return res.status(500).json({
-      jsonrpc: '2.0',
-      id,
-      error: { 
-        code: -32603, 
-        message: 'Internal error processing paymaster data', 
-        data: (error as Error).message 
-      }
-    });
+    logger.error('Error in getPaymasterData:', error);
+    
+    // Format the error for consistent response
+    const errorResponse = formatPaymasterError(error, id);
+    return res.status(500).json(errorResponse);
   }
 }
 
@@ -538,34 +330,13 @@ async function handleGetPaymasterData(req: NextApiRequest, res: NextApiResponse)
  */
 async function handleGetPaymasterStubData(req: NextApiRequest, res: NextApiResponse) {
   const { id, params } = req.body;
-  const startTime = Date.now();
   
   try {
-    // Read critical environment variables directly in the request handler
-    // This ensures we get the latest values even in serverless environments
-    const hotPathPrivateKey = process.env.SPONSOR_WALLET_PRIVATE_KEY;
-    const hotPathRpcUrl = process.env.RPC_URL || BACKEND_RPC_URL;
-    const hotPathAddressHub = process.env.ADDRESS_HUB || ADDRESS_HUB;
-    
-    logger.debug('Hot path environment check for stub data', {
-      SPONSOR_KEY: hotPathPrivateKey ? 'defined' : 'undefined',
-      RPC_URL: hotPathRpcUrl ? 'defined' : 'undefined',
-      ADDRESS_HUB: hotPathAddressHub ? 'defined' : 'undefined'
-    });
-
     // Extract parameters
     const [userOperation, entryPointAddress, chainId, context] = params;
     
-    logger.info('Processing paymaster stub data request for sender:', userOperation.sender);
-    logger.info('Request received at:', new Date().toISOString());
-    logger.debug('EntryPoint version details', {
-      entryPointAddress: entryPointAddress,
-      chainId: chainId
-    });
-    
     // Detect EntryPoint version based on the address
     const isEntryPointV07 = entryPointAddress == entryPoint07Address;
-    logger.info(`Detected EntryPoint version for stub: ${isEntryPointV07 ? 'v0.7' : 'v0.6'}`);
     
     // Validate required parameters
     if (!userOperation || !userOperation.sender || !entryPointAddress || !chainId) {
@@ -580,87 +351,22 @@ async function handleGetPaymasterStubData(req: NextApiRequest, res: NextApiRespo
       });
     }
     
-    // If hot path private key is available but global one isn't, create the sponsor account on demand
-    let dynamicSponsorAccount = sponsorAccount;
-    let dynamicSponsorWallet = sponsorWallet;
-    
-    if (hotPathPrivateKey && !dynamicSponsorAccount) {
-      logger.info('Creating sponsor account on hot path for stub data with fresh private key');
-      try {
-        dynamicSponsorAccount = privateKeyToAccount(hotPathPrivateKey as Hex);
-        dynamicSponsorWallet = createWalletClient({
-          account: dynamicSponsorAccount,
-          chain: monadTestnet,
-          transport: http(hotPathRpcUrl)
-        });
-        logger.info('Successfully created sponsor wallet on hot path for stub data');
-      } catch (walletError) {
-        logger.error('Failed to create sponsor wallet on hot path for stub data:', walletError);
-      }
-    }
-    
-    // Start initialization if not already done
-    if (!PAYMASTER_ADDRESS && !PAYMASTER_INITIALIZING) {
-      INITIALIZATION_ATTEMPTS = 0;
-      initializePaymaster();
-    }
-    
-    // Use dynamic wallet if available, otherwise fall back to global
-    const activeWallet = dynamicSponsorWallet || sponsorWallet;
-    const activeAccount = dynamicSponsorAccount || sponsorAccount;
-    
-    // We need either a paymaster address or a wallet to proceed
-    if (!PAYMASTER_ADDRESS && (!activeWallet || !activeAccount)) {
-      // If we have neither paymaster address nor wallet, that's a real error
-      logger.error('Critical error: No paymaster address AND no sponsor wallet available');
-      logger.debug('Hot path environment check', {
-        SPONSOR_KEY: hotPathPrivateKey ? 'defined' : 'undefined',
-        ADDRESS_HUB: hotPathAddressHub ? 'defined' : 'undefined'
-      });
-      
+    // Get paymaster address
+    const paymasterAddress = await getPaymasterAddress();
+    if (!paymasterAddress) {
       return res.status(500).json({
         jsonrpc: '2.0',
         id,
         error: { 
           code: -32603, 
-          message: 'Both paymaster address and sponsor wallet unavailable',
-          data: {
-            initialization: PAYMASTER_INITIALIZING ? 'in progress' : 'not started',
-            attempts: INITIALIZATION_ATTEMPTS,
-            error: INITIALIZATION_ERROR ? INITIALIZATION_ERROR.message : undefined,
-            walletStatus: {
-              hotPathKey: !!hotPathPrivateKey,
-              globalKey: !!SPONSOR_PRIVATE_KEY,
-              dynamicWallet: !!dynamicSponsorWallet,
-              globalWallet: !!sponsorWallet
-            }
-          }
+          message: 'Paymaster address unavailable for stub data',
+          data: 'Could not retrieve paymaster address from hub contract'
         }
       });
     }
     
-    // Use the REAL paymaster address if available (preferred), otherwise attempt to read it from contract
-    // Only as a last resort, use the stub address to avoid returning an error
-    let effectivePaymasterAddress: Address = PAYMASTER_ADDRESS || STUB_PAYMASTER_ADDRESS;
-    
-    // Try to read it directly from the contract if not available and we have a wallet
-    if (effectivePaymasterAddress === STUB_PAYMASTER_ADDRESS && activeWallet) {
-      const onDemandAddress = await readPaymasterAddressOnDemand(hotPathAddressHub as Address, activeWallet);
-      if (onDemandAddress) {
-        effectivePaymasterAddress = onDemandAddress;
-        // Store for future use
-        PAYMASTER_ADDRESS = onDemandAddress;
-      }
-    }
-    
-    logger.info(`Using effective paymaster address for stub: ${effectivePaymasterAddress}`);
-    
-    // Generate stub paymaster data with the effective address
-    const paymasterAndData = `0x${effectivePaymasterAddress.slice(2)}${'00'.repeat(64)}` as Hex;
-    
-    // Check how long we've been processing
-    const processingTime = Date.now() - startTime;
-    logger.info(`Stub data prepared in ${processingTime}ms`);
+    // Generate stub paymaster data with zeros for the signature part
+    const paymasterAndData = `0x${paymasterAddress.slice(2)}${'00'.repeat(64)}` as Hex;
     
     // Return response based on EntryPoint version
     if (isEntryPointV07) {
@@ -668,12 +374,12 @@ async function handleGetPaymasterStubData(req: NextApiRequest, res: NextApiRespo
         jsonrpc: '2.0',
         id,
         result: {
-          paymaster: effectivePaymasterAddress,
+          paymaster: paymasterAddress,
           paymasterData: '0x' + '00'.repeat(64) as Hex,
           paymasterVerificationGasLimit: 75000n,
           paymasterPostOpGasLimit: 120000n,
           sponsor: {
-            name: 'Custom Sponsor Paymaster'
+            name: 'Fastlane Paymaster'
           },
           isFinal: false
         }
@@ -688,53 +394,17 @@ async function handleGetPaymasterStubData(req: NextApiRequest, res: NextApiRespo
           verificationGasLimit: '0x501ab',
           callGasLimit: '0x212df',
           sponsor: {
-            name: 'Custom Sponsor Paymaster'
+            name: 'Fastlane Paymaster'
           },
           isFinal: false
         }
       });
     }
   } catch (error) {
-    const processingTime = Date.now() - startTime;
-    logger.error(`Error in getPaymasterStubData after ${processingTime}ms:`, error);
-    return res.status(500).json({
-      jsonrpc: '2.0',
-      id,
-      error: { 
-        code: -32603, 
-        message: 'Internal error processing paymaster stub data', 
-        data: (error as Error).message 
-      }
-    });
-  }
-}
-
-// Helper function to read paymaster address on demand directly from contract
-async function readPaymasterAddressOnDemand(addressHubAddress: Address, wallet: any): Promise<Address | null> {
-  logger.info('Attempting to read paymaster address on demand from contract');
-  try {
-    const addressHubContract = await initContract(
-      addressHubAddress,
-      addressHubAbi,
-      backendPublicClient
-    );
+    logger.error('Error in getPaymasterStubData:', error);
     
-    if (!addressHubContract) {
-      logger.error('Failed to initialize Address Hub contract on demand');
-      return null;
-    }
-    
-    const paymasterAddress = (await addressHubContract.read.paymaster4337([])) as Address;
-    
-    if (!paymasterAddress || paymasterAddress === '0x0000000000000000000000000000000000000000') {
-      logger.error('Invalid paymaster address read from contract on demand');
-      return null;
-    }
-    
-    logger.info('Successfully read paymaster address on demand:', paymasterAddress);
-    return paymasterAddress;
-  } catch (error) {
-    logger.error('Error reading paymaster address on demand:', error);
-    return null;
+    // Format the error for consistent response
+    const errorResponse = formatPaymasterError(error, id);
+    return res.status(500).json(errorResponse);
   }
 } 

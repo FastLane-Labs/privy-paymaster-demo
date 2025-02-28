@@ -30,7 +30,7 @@ import paymasterAbi from '@/abis/paymaster.json';
 import shmonadAbi from '@/abis/shmonad.json';
 import { createSmartAccountClient } from 'permissionless';
 import { toSafeSmartAccount } from 'permissionless/accounts';
-import { createLocalPaymasterClient } from '@/utils/paymasterClient';
+import { createApiPaymasterClient } from '@/utils/paymasterClients';
 import { logger } from '@/utils/logger';
 
 // Define the EntryPoint address
@@ -93,6 +93,8 @@ export type WalletManagerState = {
   smartAccount: any | null;
   smartAccountClient: any | null;
   bundler: ShBundlerClient | null;
+  bundlerWithPaymaster: ShBundlerClient | null;
+  bundlerWithoutPaymaster: ShBundlerClient | null;
   walletClient: WalletClient | null;
   loading: boolean;
   contractAddresses: {
@@ -113,6 +115,8 @@ export function useWalletManager() {
   const [smartAccount, setSmartAccount] = useState<any>(null);
   const [smartAccountClient, setSmartAccountClient] = useState<any>(null);
   const [bundler, setBundler] = useState<ShBundlerClient | null>(null);
+  const [bundlerWithPaymaster, setBundlerWithPaymaster] = useState<ShBundlerClient | null>(null);
+  const [bundlerWithoutPaymaster, setBundlerWithoutPaymaster] = useState<ShBundlerClient | null>(null);
   const [walletClient, setWalletClient] = useState<WalletClient | null>(null);
   const [loading, setLoading] = useState(false);
   const [contractAddresses, setContractAddresses] = useState({
@@ -294,23 +298,33 @@ export function useWalletManager() {
                   console.log('📝 STEP 7: Creating paymaster client via RPC endpoint...');
                   try {
                     // Use the RPC-based paymaster client
-                    const paymasterClient = createLocalPaymasterClient();
+                    const paymasterClient = createApiPaymasterClient();
                     
                     console.log('📝 STEP 7B: Initializing bundler with paymaster...');
-                    const bundlerWithPaymaster = initBundlerWithPaymaster(
+                    const bundlerWithPaymasterInstance = initBundlerWithPaymaster(
                       safeSmartAccount,
                       client,
                       paymasterClient
                     );
                     
-                    // Update the bundler to use the one with paymaster integration
-                    console.log('✅ STEP 7 COMPLETE: Using bundler with paymaster integration');
-                    setBundler(bundlerWithPaymaster);
+                    // Create a bundler without paymaster for self-sponsored transactions
+                    console.log('📝 STEP 7C: Initializing bundler without paymaster for self-sponsored transactions...');
+                    const bundlerWithoutPaymasterInstance = initBundler(safeSmartAccount, client);
+                    
+                    // Update the bundlers
+                    console.log('✅ STEP 7 COMPLETE: Created both bundler types');
+                    setBundlerWithPaymaster(bundlerWithPaymasterInstance);
+                    setBundlerWithoutPaymaster(bundlerWithoutPaymasterInstance);
+                    
+                    // Set the default bundler to use the one with paymaster integration
+                    console.log('✅ Setting default bundler to use paymaster integration');
+                    setBundler(bundlerWithPaymasterInstance);
                   } catch (paymasterError) {
                     console.error('❌ Error setting up paymaster:', paymasterError);
                     console.log('⚠️ Falling back to bundler without paymaster');
                     // Fall back to the regular bundler without paymaster
                     const regularBundler = initBundler(safeSmartAccount, client);
+                    setBundlerWithoutPaymaster(regularBundler);
                     setBundler(regularBundler);
                   }
                   
@@ -488,6 +502,8 @@ export function useWalletManager() {
     smartAccount,
     smartAccountClient,
     bundler,
+    bundlerWithPaymaster,
+    bundlerWithoutPaymaster,
     walletClient,
     loading,
     setLoading,

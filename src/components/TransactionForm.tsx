@@ -13,6 +13,7 @@ interface TransactionFormProps {
   defaultAmount?: string;
   description?: string;
   isFastlaneSponsored?: boolean;
+  transactionHash?: string;
 }
 
 export default function TransactionForm({
@@ -27,6 +28,7 @@ export default function TransactionForm({
   defaultAmount = '0.001',
   description,
   isFastlaneSponsored = false,
+  transactionHash,
 }: TransactionFormProps) {
   const [recipient, setRecipient] = useState('');
   const [amount, setAmount] = useState(defaultAmount);
@@ -49,11 +51,30 @@ export default function TransactionForm({
     }
   };
 
-  // Extract error codes for highlighting
-  const errorCodeRegex = /(AA\d+|[-\d]+)/g;
+  // Extract error codes for highlighting - only match AA codes or error codes
+  const errorCodeRegex = /(AA\d+|(?<!\w)[-]?\d+(?!\w))/g;
+  
+  // Process the status text to prevent highlighting transaction hashes and make them clickable links
+  // We'll extract transaction hash from the status message if not provided as a prop
+  let extractedTxHash: string | null = null;
+  
   const highlightedErrorStatus = txStatus
-    ? txStatus.replace(errorCodeRegex, '<span class="font-mono bg-red-100 px-1 rounded">$1</span>')
+    ? txStatus.replace(
+        /Transaction hash: ([a-f0-9x]+)/gi, 
+        (match, hash) => {
+          // Store the extracted hash for later use if not provided as prop
+          if (!transactionHash) {
+            extractedTxHash = hash;
+          }
+          // Don't include the link in the status if we'll show it separately
+          return 'Transaction confirmed!';
+        }
+      )
+      .replace(errorCodeRegex, '<span class="font-mono bg-red-100 px-1 rounded">$1</span>')
     : '';
+
+  // Use either the prop or extracted hash
+  const finalTransactionHash = transactionHash || extractedTxHash;
 
   return (
     <div className="border p-4 rounded-lg">
@@ -113,10 +134,51 @@ export default function TransactionForm({
 
         {disabled && disabledReason && <p className="text-red-500 text-sm">{disabledReason}</p>}
 
+        {/* Display UserOp Hash if available */}
         {txHash && (
-          <p>
-            <strong>UserOp Hash:</strong> <span className="break-all">{txHash}</span>
-          </p>
+          <div className="mt-3 p-3 bg-gray-50 rounded-md">
+            <p>
+              <strong>UserOp Hash:</strong>{' '}
+              <span className="break-all font-mono text-gray-600">
+                {txHash}
+              </span>
+            </p>
+            
+            {/* Display Transaction Hash if available with links to both transaction and event log */}
+            {finalTransactionHash && (
+              <div className="mt-2">
+                <p>
+                  <strong>Transaction Hash:</strong>{' '}
+                  <a 
+                    href={`https://monad-testnet.socialscan.io/tx/${finalTransactionHash}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="break-all font-mono text-blue-600 hover:underline"
+                  >
+                    {finalTransactionHash}
+                  </a>
+                </p>
+                <div className="mt-1 flex gap-2">
+                  <a 
+                    href={`https://monad-testnet.socialscan.io/tx/${finalTransactionHash}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
+                  >
+                    View Transaction
+                  </a>
+                  <a 
+                    href={`https://monad-testnet.socialscan.io/tx/${finalTransactionHash}#eventlog`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
+                  >
+                    View Event Log
+                  </a>
+                </div>
+              </div>
+            )}
+          </div>
         )}
 
         {txStatus && (

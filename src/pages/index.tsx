@@ -1,5 +1,6 @@
 import Head from 'next/head';
 import { usePrivy } from '@privy-io/react-auth';
+import { useState } from 'react';
 
 // Custom hooks
 import { useWalletManager } from '@/hooks/useWalletManager';
@@ -10,7 +11,6 @@ import WalletStatus from '@/components/WalletStatus';
 import ContractAddresses from '@/components/ContractAddresses';
 import TransactionForm from '@/components/TransactionForm';
 import BondMonForm from '@/components/BondMonForm';
-import DebugTools from '@/components/DebugTools';
 
 export default function Home() {
   const { login, authenticated, ready } = usePrivy();
@@ -42,132 +42,28 @@ export default function Home() {
     sendSponsoredTransaction,
     sendSelfSponsoredTransaction,
     bondMonToShmon,
-    verifyPaymasterConfiguration,
     setTxStatus,
   } = txOperations;
 
-  // Debug functions
-  async function debugUserOpSignature() {
-    if (!smartAccount) {
-      setTxStatus('Cannot debug: Smart account not initialized');
-      return;
+  // State to store transaction hashes
+  const [selfSponsoredTransactionHash, setSelfSponsoredTransactionHash] = useState<string | undefined>();
+  const [sponsoredTransactionHash, setSponsoredTransactionHash] = useState<string | undefined>();
+
+  // Wrapper for self-sponsored transaction to capture transaction hash
+  const handleSelfSponsoredTransaction = async (recipient: string, amount: string) => {
+    const result = await sendSelfSponsoredTransaction(recipient, amount);
+    if (result && 'transactionHash' in result) {
+      setSelfSponsoredTransactionHash(result.transactionHash);
     }
+  };
 
-    try {
-      setLoading(true);
-      setTxStatus('Debugging UserOperation signature...');
-
-      // Check if embedded wallet is defined
-      if (!embeddedWallet) {
-        setTxStatus('Cannot debug: Embedded wallet is not initialized');
-        setLoading(false);
-        return;
-      }
-
-      if (!bundler) {
-        setTxStatus('Cannot debug: Bundler not initialized');
-        setLoading(false);
-        return;
-      }
-
-      // Create a minimal test UserOperation
-      const minTestUserOp = {
-        account: smartAccount,
-        calls: [
-          {
-            to: smartAccount.address, // Send to self for testing
-            value: BigInt('100000000000000'), // 0.0001 (in wei)
-            data: '0x',
-          },
-        ],
-      };
-
-      // Prepare the UserOperation using the bundler
-      console.log('Debug - Preparing test UserOperation...');
-      const testUserOp = await bundler.prepareUserOperation(minTestUserOp);
-
-      console.log('Original UserOperation:', testUserOp);
-
-      // Check if smartAccount is a Safe account
-      const isSafeAccount = 'owners' in smartAccount;
-      console.log('Is Safe account:', isSafeAccount);
-
-      try {
-        if (isSafeAccount) {
-          console.log('Using SafeSmartAccount.signUserOperation for signing');
-
-          // For Safe accounts, use the SafeSmartAccount.signUserOperation method directly
-          const signature = await smartAccount.signUserOperation(testUserOp);
-
-          console.log('Successfully signed with Safe account. Signature:', signature);
-          setTxStatus(
-            'Successfully signed with Safe account! Check console for signature details.'
-          );
-        } else {
-          console.log('Using standard signUserOperation for non-Safe account');
-          // Standard signing for non-Safe accounts
-          const signature = await smartAccount.signUserOperation(testUserOp);
-          console.log('Successfully signed with standard method:', signature);
-          setTxStatus('Successfully signed! Check console for signature details.');
-        }
-      } catch (signError) {
-        console.error('Error signing UserOperation:', signError);
-        setTxStatus(
-          `Signing error: ${signError instanceof Error ? signError.message : String(signError)}`
-        );
-      }
-    } catch (error) {
-      console.error('Debug error:', error);
-      setTxStatus(`Debug error: ${error instanceof Error ? error.message : String(error)}`);
-    } finally {
-      setLoading(false);
+  // Wrapper for sponsored transaction to capture transaction hash
+  const handleSponsoredTransaction = async (recipient: string, amount: string) => {
+    const result = await sendSponsoredTransaction(recipient, amount);
+    if (result && typeof result === 'object' && 'transactionHash' in result) {
+      setSponsoredTransactionHash(result.transactionHash);
     }
-  }
-
-  async function debugUserOpWithPaymaster() {
-    if (!smartAccount) {
-      setTxStatus('Cannot debug: Smart account not initialized');
-      return;
-    }
-
-    try {
-      setLoading(true);
-      setTxStatus('Verifying paymaster configuration...');
-      
-      // Use our new verification function
-      const configStatus = verifyPaymasterConfiguration();
-      console.log('Paymaster config check result:', configStatus);
-      
-      setTxStatus(`Paymaster configuration check completed. Check console logs for details.`);
-      
-      // If we have a bundler, try a sponsored transaction to test it
-      if (smartAccount && bundler && (await configStatus).paymaster) {
-        try {
-          setTxStatus('Testing sponsored transaction with minimal value...');
-          // Send a minimal test transaction to self
-          const testResult = await sendSponsoredTransaction(
-            smartAccount.address,  // to self 
-            '0.0000001'           // tiny amount
-          );
-          
-          if (testResult) {
-            setTxStatus(`✅ Sponsored transaction successful! TX: ${testResult}`);
-          } else {
-            setTxStatus(`❌ Sponsored transaction failed. Check console for details.`);
-          }
-        } catch (error) {
-          console.error('Test transaction error:', error);
-          setTxStatus(`❌ Sponsored transaction test error: ${error instanceof Error ? error.message : String(error)}`);
-        }
-      }
-      
-      setLoading(false);
-    } catch (error) {
-      console.error('Paymaster debug error:', error);
-      setTxStatus(`Error debugging paymaster: ${error instanceof Error ? error.message : String(error)}`);
-      setLoading(false);
-    }
-  }
+  };
 
   const handleBondMonToShmon = async (amount: string) => {
     const newBondedAmount = await bondMonToShmon(amount);
@@ -283,17 +179,10 @@ export default function Home() {
                             paymasterDeposit={paymasterDeposit}
                           />
 
-                          <DebugTools
-                            onDebugUserOpSignature={debugUserOpSignature}
-                            onDebugUserOpWithPaymaster={debugUserOpWithPaymaster}
-                            loading={loading}
-                            txStatus={txStatus}
-                          />
-
                           <TransactionForm
                             title="Send Paymaster Sponsored (Transfer)"
                             buttonText="Send Transaction"
-                            onSubmit={sendSponsoredTransaction}
+                            onSubmit={handleSponsoredTransaction}
                             loading={loading}
                             disabled={false}
                             disabledReason={undefined}
@@ -301,17 +190,19 @@ export default function Home() {
                             txStatus={sponsoredTxStatus}
                             description="Transaction fees are covered by the Fastlane paymaster contract"
                             isFastlaneSponsored={true}
+                            transactionHash={sponsoredTransactionHash}
                           />
 
                           {bondedShmon !== '0' ? (
                             <TransactionForm
                               title="Send Self Sponsored (Transfer)"
                               buttonText="Send Transaction" 
-                              onSubmit={sendSelfSponsoredTransaction}
+                              onSubmit={handleSelfSponsoredTransaction}
                               loading={loading}
                               txHash={selfSponsoredTxHash}
                               txStatus={selfSponsoredTxStatus}
                               description="Embedded EOA sponsors the smart account"
+                              transactionHash={selfSponsoredTransactionHash}
                             />
                           ) : (
                             <div className="border p-4 rounded-lg bg-gray-50">

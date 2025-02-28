@@ -177,6 +177,92 @@ async function sendSponsoredTransaction(recipient: Address, amount: bigint) {
 }
 ```
 
+### Self-Sponsored Transaction Flow
+
+The demo also supports self-sponsored transactions, which require users to bond to shMONAD using the Fastlane paymaster policy ID. This approach allows users to pay for their own gas fees using their smart account balance.
+
+Key aspects of the self-sponsored flow:
+
+1. **shMONAD Bonding Requirement**: 
+   - Users must bond to shMONAD using the Fastlane paymaster policy ID
+   - This bonding relationship is required for the bundler to accept self-sponsored transactions
+   - The bond is established through a special transaction to the shMONAD contract
+   - The Fastlane paymaster policy ID is a specific identifier that links the user's account to the Fastlane infrastructure
+   - Without this bond, self-sponsored transactions will be rejected by the bundler
+
+2. **Embedded EOA for Initial Bond**:
+   - The Privy embedded wallet (EOA) is used to sponsor the initial bonding transaction
+   - This one-time sponsorship allows the smart account to establish the required bond
+   - After bonding, the smart account can pay for its own transactions
+   - The embedded EOA signs the bonding transaction, which is then submitted to the network
+   - This approach bootstraps the smart account's ability to interact with the Fastlane infrastructure
+
+3. **Custom Paymaster Data Generation**:
+   - Self-sponsored transactions use a custom paymaster data generation flow
+   - Unlike sponsored transactions, the paymaster backend is not set in the bundler client
+   - Instead, the `generateSelfSponsoredPaymasterAndData` function creates the necessary paymaster data
+   - This approach allows for more flexibility in how transactions are processed
+   - The paymaster data includes the policy ID and other metadata required by the Fastlane bundler
+
+4. **Bond-to-Transaction Flow**:
+   - User bonds MON to shMONAD using the embedded EOA to pay for gas
+   - The bonding transaction includes the Fastlane policy ID as part of the transaction data
+   - Once bonded, the smart account can send self-sponsored transactions
+   - The bundler recognizes the bond and processes the transaction using the smart account's balance
+   - This creates a seamless user experience where users can pay for their own gas without managing separate wallets
+
+```typescript
+// Function to send a self-sponsored transaction
+async function sendSelfSponsoredTransaction(recipient: string, amount: string) {
+  try {
+    // Get gas price from bundler
+    const gasPrice = await bundlerWithoutPaymaster.getUserOperationGasPrice();
+    
+    // Prepare the user operation with the smart account
+    const userOperation = await bundlerWithoutPaymaster.prepareUserOperation({
+      account: smartAccount,
+      calls: [
+        {
+          to: targetAddress,
+          value: amountWei,
+          data: '0x' as Hex,
+        },
+      ],
+      maxFeePerGas: gasPrice.standard.maxFeePerGas,
+      maxPriorityFeePerGas: gasPrice.standard.maxPriorityFeePerGas,
+    });
+    
+    // Generate self-sponsored paymaster data
+    const paymasterAndData = await generateSelfSponsoredPaymasterAndData(
+      userOperation,
+      smartAccount.address
+    );
+    
+    // Update the user operation with the paymaster data
+    userOperation.paymasterAndData = paymasterAndData;
+    
+    // Sign and send the user operation
+    const signature = await smartAccount.signUserOperation(userOperation);
+    userOperation.signature = signature;
+    
+    const hash = await bundlerWithoutPaymaster.sendUserOperation(userOperation);
+    
+    // Wait for transaction confirmation
+    const receipt = await bundlerWithoutPaymaster.waitForUserOperationReceipt({ hash });
+    
+    return {
+      userOpHash: hash,
+      transactionHash: receipt.receipt.transactionHash
+    };
+  } catch (error) {
+    console.error('Error sending self-sponsored transaction:', error);
+    return null;
+  }
+}
+```
+
+This self-sponsored approach provides users with more flexibility in how they pay for transactions, allowing them to use their own funds rather than relying on a third-party sponsor.
+
 ### Custom Paymaster Client Implementation
 
 The demo includes a custom paymaster client that interfaces with the backend paymaster API:

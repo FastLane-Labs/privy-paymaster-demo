@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { MONAD_CHAIN, publicClient } from '@/utils/config';
-import { encodeFunctionData, parseEther, type Address, type Hex } from 'viem';
+import { Account, encodeFunctionData, parseEther, type Address, type Hex } from 'viem';
 import shmonadAbi from '@/abis/shmonad.json';
 import { WalletManagerState } from './useWalletManager';
 import { ShBundlerClient } from '@/utils/bundler';
@@ -130,8 +130,8 @@ export function useTransactions(walletManager: TransactionWalletManager) {
 
   // Regular transaction - updated to use Smart Account Client
   async function sendTransaction(recipient: string, amount: string) {
-    if (!smartAccount) {
-      setTxStatus('Smart account not initialized');
+    if (!walletClient) {
+      setTxStatus('Wallet client not initialized');
       return null;
     }
     
@@ -154,17 +154,19 @@ export function useTransactions(walletManager: TransactionWalletManager) {
         console.log('💰 Using smart account client directly for NON-SPONSORED transaction');
         
         // Use the smart account client for the transaction
-        const hash = await smartAccountClient.sendTransaction({
+        const hash = await walletClient.sendTransaction({
           to: to,
           value: parsedAmount,
           data: '0x' as Hex,
+          account: walletClient.account as Account,
+          chain: MONAD_CHAIN,
         });
 
         setTxHash(hash);
         setTxStatus('Waiting for transaction confirmation...');
 
         // Wait for the transaction receipt
-        const receipt = await smartAccountClient.waitForTransactionReceipt({
+        const receipt = await publicClient.waitForTransactionReceipt({
           hash: hash,
         });
 

@@ -34,6 +34,7 @@ export default function Home() {
   const txOperations = useTransactions(walletManager);
   const {
     txStatus,
+    txHash,
     sponsoredTxHash,
     sponsoredTxStatus,
     selfSponsoredTxHash,
@@ -48,6 +49,7 @@ export default function Home() {
   // State to store transaction hashes
   const [selfSponsoredTransactionHash, setSelfSponsoredTransactionHash] = useState<string | undefined>();
   const [sponsoredTransactionHash, setSponsoredTransactionHash] = useState<string | undefined>();
+  const [eoaTransactionHash, setEoaTransactionHash] = useState<string | undefined>();
 
   // Wrapper for self-sponsored transaction to capture transaction hash
   const handleSelfSponsoredTransaction = async (recipient: string, amount: string) => {
@@ -69,6 +71,14 @@ export default function Home() {
     const newBondedAmount = await bondMonToShmon(amount);
     if (newBondedAmount) {
       // Update the bonded amount if needed
+    }
+  };
+
+  // Wrapper for EOA transaction to capture transaction hash
+  const handleEoaTransaction = async (recipient: string, amount: string) => {
+    const transactionHash = await sendTransaction(recipient, amount);
+    if (transactionHash) {
+      setEoaTransactionHash(transactionHash);
     }
   };
 
@@ -222,6 +232,19 @@ export default function Home() {
                             loading={loading}
                             txStatus={txStatus}
                           />
+
+                          {embeddedWallet && (
+                            <TransactionForm
+                              title="Send Funds from EOA"
+                              buttonText="Send from EOA"
+                              onSubmit={handleEoaTransaction}
+                              loading={loading}
+                              txHash={txHash}
+                              txStatus={txStatus}
+                              description="Transfer funds directly from your embedded EOA wallet"
+                              transactionHash={eoaTransactionHash}
+                            />
+                          )}
                         </>
                       )}
                     </div>

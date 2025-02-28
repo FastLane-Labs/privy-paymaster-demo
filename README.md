@@ -31,6 +31,8 @@ This is a demo application that showcases the integration of Privy's embedded wa
 - Transaction sending with status tracking
 - Privy to Viem wallet conversion for standard Web3 interactions
 - Sponsored transactions with balance display
+- Self-sponsored transactions using shMONAD bonding
+- Direct EOA transactions from the embedded wallet
 - Dynamic wallet balance updates
 
 ## Prerequisites
@@ -262,6 +264,77 @@ async function sendSelfSponsoredTransaction(recipient: string, amount: string) {
 ```
 
 This self-sponsored approach provides users with more flexibility in how they pay for transactions, allowing them to use their own funds rather than relying on a third-party sponsor.
+
+### Direct EOA Transaction Flow
+
+The application also supports direct transactions from the embedded EOA wallet, bypassing the smart account entirely. This provides users with flexibility to choose how they want to interact with the blockchain:
+
+1. **Direct EOA Transactions**:
+   - Users can send transactions directly from their Privy embedded wallet (EOA)
+   - These transactions don't use account abstraction or the bundler infrastructure
+   - The EOA pays for gas fees using its native MON balance
+   - This approach follows the traditional transaction flow familiar to most blockchain users
+
+2. **Use Cases for Direct EOA Transactions**:
+   - When users need to interact with contracts that don't support account abstraction
+   - For simple value transfers when account abstraction features aren't needed
+   - When users prefer to manage their own gas fees directly
+   - As a fallback option if there are issues with the bundler or paymaster
+
+3. **Implementation Details**:
+   - The application uses the Privy wallet client directly for these transactions
+   - Transactions are sent using viem's standard transaction flow
+   - Gas estimation and fee management follow traditional EOA patterns
+   - Transaction status and hash are tracked in the UI similar to other transaction types
+
+```typescript
+// Function to send a direct EOA transaction
+async function sendTransaction(recipient: string, amount: string) {
+  if (!walletClient) {
+    setTxStatus('Wallet client not initialized');
+    return null;
+  }
+  
+  try {
+    setLoading?.(true);
+    setTxStatus('Preparing transaction...');
+
+    // Parse the amount for the transaction
+    const parsedAmount = parseEther(amount);
+
+    // Create recipient address - if not valid, send to self
+    const to =
+      recipient && recipient.startsWith('0x') && recipient.length === 42
+        ? (recipient as Address)
+        : smartAccount.address;
+
+    // Use the wallet client directly for the transaction
+    const hash = await walletClient.sendTransaction({
+      to: to,
+      value: parsedAmount,
+      data: '0x' as Hex,
+      account: walletClient.account as Account,
+      chain: MONAD_CHAIN,
+    });
+
+    setTxHash(hash);
+    setTxStatus('Waiting for transaction confirmation...');
+
+    // Wait for the transaction receipt
+    const receipt = await publicClient.waitForTransactionReceipt({
+      hash: hash,
+    });
+
+    setTxStatus(`Transaction confirmed! Transaction hash: ${receipt.transactionHash}`);
+    return receipt.transactionHash;
+  } catch (error) {
+    handleTransactionError(error, setTxStatus);
+    return null;
+  }
+}
+```
+
+This multi-modal approach to transactions (sponsored, self-sponsored, and direct EOA) gives users complete flexibility in how they interact with the blockchain while still benefiting from the security and convenience of Privy's embedded wallet solution.
 
 ### Custom Paymaster Client Implementation
 

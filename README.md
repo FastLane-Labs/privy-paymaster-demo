@@ -85,11 +85,16 @@ yarn dev
 
 1. **Authentication**: Users authenticate with Privy to create or access their embedded wallet
 2. **Smart Account Creation**: The embedded wallet is used to create a Safe smart account
-3. **UserOperation Creation**: When sending a transaction, a custom UserOperation is prepared with the transaction details
-4. **Paymaster Integration**: The Fastlane paymaster adds sponsorship data to the UserOperation and signs it
+3. **UserOperation Creation**: When sending a transaction, a custom UserOperation is created
+4. **Paymaster Integration**: The Sponsor EOA (paymaster) adds sponsorship data to the UserOperation and signs it
 5. **UserOperation Signing**: After the paymaster has signed, the embedded wallet signs the complete UserOperation
-6. **Transaction Submission**: The fully signed UserOperation is sent to the ShBundler
-7. **Transaction Confirmation**: The receipt is retrieved and the UI status is updated
+6. **Transaction Submission**: The fully signed UserOperation is sent to the fastlane bundler
+7. **Transaction Confirmation**: The receipt is retrieved and status is updated
+
+This sequence is important because:
+- The paymaster must commit to sponsoring the transaction before the user signs
+- The user's signature needs to cover the complete UserOperation (including paymaster data)
+- This ensures proper validation at the bundler and entry point level
 
 ### Safe Smart Account Creation
 

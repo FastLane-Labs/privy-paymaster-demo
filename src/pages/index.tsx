@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import Head from 'next/head';
 import { usePrivy } from '@privy-io/react-auth';
 
@@ -34,7 +33,6 @@ export default function Home() {
 
   const txOperations = useTransactions(walletManager);
   const {
-    txHash,
     txStatus,
     sponsoredTxHash,
     sponsoredTxStatus,

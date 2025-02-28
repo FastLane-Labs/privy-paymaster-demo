@@ -7,7 +7,7 @@ import { http } from 'viem';
 /**
  * Creates a viem paymaster client that uses our custom paymaster RPC endpoint
  */
-export function createLocalPaymasterClient(): PaymasterClient {
+export function createApiPaymasterClient(): PaymasterClient {
   console.log('🔨 Creating local paymaster client using API endpoint');
   
   // Create the paymaster client using the factory function from viem

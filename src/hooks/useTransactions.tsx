@@ -146,13 +146,13 @@ export function useTransactions(walletManager: TransactionWalletManager) {
       const to =
         recipient && recipient.startsWith('0x') && recipient.length === 42
           ? (recipient as Address)
-          : smartAccount.address;
+          : walletClient.account?.address;
 
       // Only use the smartAccountClient approach - no bundler or paymaster
-      if (smartAccountClient) {
+      if (walletClient) {
         setTxStatus('Using smart account client for transaction...');
         console.log('💰 Using smart account client directly for NON-SPONSORED transaction');
-        
+
         // Use the smart account client for the transaction
         const hash = await walletClient.sendTransaction({
           to: to,

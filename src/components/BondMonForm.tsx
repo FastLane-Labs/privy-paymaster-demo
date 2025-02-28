@@ -1,39 +1,61 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { formatEther } from 'viem';
 
 interface BondMonFormProps {
   bondedShmon: string;
-  onBond: (amount: string) => void;
+  onBond: (amount: string) => Promise<any>;
   loading: boolean;
-  txStatus: string;
+  txStatus?: string;
 }
 
-export default function BondMonForm({ bondedShmon, onBond, loading, txStatus }: BondMonFormProps) {
+export default function BondMonForm({ bondedShmon, onBond, loading }: BondMonFormProps) {
   const [copied, setCopied] = useState(false);
   const [bondAmount, setBondAmount] = useState('2');
+  const [bondTxStatus, setBondTxStatus] = useState('');
+  const [bondTxHash, setBondTxHash] = useState('');
   const isBonded = bondedShmon !== '0';
   const isError =
-    txStatus.toLowerCase().includes('error') ||
-    txStatus.toLowerCase().includes('failed') ||
-    txStatus.toLowerCase().includes('invalid');
+    bondTxStatus.toLowerCase().includes('error') ||
+    bondTxStatus.toLowerCase().includes('failed') ||
+    bondTxStatus.toLowerCase().includes('invalid');
 
   const copyErrorToClipboard = () => {
-    if (txStatus) {
-      navigator.clipboard.writeText(txStatus);
+    if (bondTxStatus) {
+      navigator.clipboard.writeText(bondTxStatus);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
   };
 
-  // Extract error codes for highlighting
+  useEffect(() => {
+    if (bondTxStatus) {
+      const match = bondTxStatus.match(/Transaction hash: ([a-f0-9x]+)/i);
+      if (match && match[1]) {
+        setBondTxHash(match[1]);
+      }
+    }
+  }, [bondTxStatus]);
+
   const errorCodeRegex = /(AA\d+|[-\d]+)/g;
-  const highlightedErrorStatus = txStatus
-    ? txStatus.replace(errorCodeRegex, '<span class="font-mono bg-red-100 px-1 rounded">$1</span>')
+  const highlightedErrorStatus = bondTxStatus
+    ? bondTxStatus.replace(errorCodeRegex, '<span class="font-mono bg-red-100 px-1 rounded">$1</span>')
     : '';
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    onBond(bondAmount);
+    setBondTxStatus('Preparing to bond MON to shMON...');
+    try {
+      const result = await onBond(bondAmount);
+      if (result && result.transactionHash) {
+        setBondTxStatus(`Transaction confirmed! Transaction hash: ${result.transactionHash}`);
+      }
+    } catch (error) {
+      if (error instanceof Error) {
+        setBondTxStatus(`Error: ${error.message}`);
+      } else {
+        setBondTxStatus('An unknown error occurred');
+      }
+    }
   };
 
   return (
@@ -73,7 +95,22 @@ export default function BondMonForm({ bondedShmon, onBond, loading, txStatus }: 
               You can now use self-sponsored transactions with your bonded shMON.
             </p>
             <button
-              onClick={(e) => { e.preventDefault(); onBond(bondAmount); }}
+              onClick={async (e) => { 
+                e.preventDefault(); 
+                setBondTxStatus('Preparing to bond more MON to shMON...');
+                try {
+                  const result = await onBond(bondAmount);
+                  if (result && result.transactionHash) {
+                    setBondTxStatus(`Transaction confirmed! Transaction hash: ${result.transactionHash}`);
+                  }
+                } catch (error) {
+                  if (error instanceof Error) {
+                    setBondTxStatus(`Error: ${error.message}`);
+                  } else {
+                    setBondTxStatus('An unknown error occurred');
+                  }
+                }
+              }}
               className="mt-3 px-4 py-2 bg-orange-500 text-white rounded hover:bg-orange-600 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
               disabled={loading}
             >
@@ -118,7 +155,7 @@ export default function BondMonForm({ bondedShmon, onBond, loading, txStatus }: 
         )}
       </div>
 
-      {txStatus && (
+      {bondTxStatus && (
         <div className={`mt-4 ${isError ? 'text-red-600' : 'text-green-600'} bg-white p-3 rounded-lg shadow-sm`}>
           <div className="flex items-center gap-2 mb-1">
             <p>
@@ -139,6 +176,22 @@ export default function BondMonForm({ bondedShmon, onBond, loading, txStatus }: 
             className="break-words"
           />
 
+          {bondTxHash && !isError && (
+            <div className="mt-2">
+              <p>
+                <strong>Transaction hash:</strong>{' '}
+                <a 
+                  href={`https://monad-testnet.socialscan.io/tx/${bondTxHash}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="break-all font-mono text-blue-600 hover:underline"
+                >
+                  {bondTxHash}
+                </a>
+              </p>
+            </div>
+          )}
+
           {isError && (
             <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded">
               <p className="text-sm text-red-800">
@@ -150,7 +203,7 @@ export default function BondMonForm({ bondedShmon, onBond, loading, txStatus }: 
                 <li>Check if the network is congested</li>
                 <li>If issues persist, contact support</li>
               </ul>
-              {txStatus.includes('AA24') && (
+              {bondTxStatus.includes('AA24') && (
                 <p className="text-xs mt-2 text-gray-600">
                   Error code AA24 indicates a signature validation problem in ERC-4337.
                 </p>

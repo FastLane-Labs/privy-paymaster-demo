@@ -10,6 +10,12 @@ export const SHBUNDLER_URL =
 export const ADDRESS_HUB = process.env.NEXT_PUBLIC_ADDRESS_HUB as Address;
 export const ENTRY_POINT_ADDRESS = entryPoint07Address as `0x${string}`;
 
+// UI Configuration flags
+export const UI_CONFIG = {
+  // When true, UserOperation hash will be displayed for all transaction types
+  // When false, UserOperation hash will only be shown for AA transactions, not for simple EOA sends
+  SHOW_USER_OP_HASH_FOR_SIMPLE_SEND: false,
+};
 
 export const MONAD_CHAIN: Chain = {
   id: MONAD_TESTNET_CHAIN_ID,

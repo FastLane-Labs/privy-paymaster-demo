@@ -67,10 +67,14 @@ export default function Home() {
     }
   };
 
+  // Bond MON to shMON handler
   const handleBondMonToShmon = async (amount: string) => {
-    const newBondedAmount = await bondMonToShmon(amount);
-    if (newBondedAmount) {
-      // Update the bonded amount if needed
+    try {
+      const result = await bondMonToShmon(amount);
+      return result; // Return the result directly to the BondMonForm component
+    } catch (error) {
+      console.error('Error bonding MON to shMON:', error);
+      throw error; // Throw the error to be caught by the BondMonForm component
     }
   };
 
@@ -201,6 +205,7 @@ export default function Home() {
                             description="Transaction fees are covered by the Fastlane paymaster contract"
                             isFastlaneSponsored={true}
                             transactionHash={sponsoredTransactionHash}
+                            showUserOpHash={true}
                           />
 
                           {bondedShmon !== '0' ? (
@@ -213,6 +218,7 @@ export default function Home() {
                               txStatus={selfSponsoredTxStatus}
                               description="Embedded EOA sponsors the smart account"
                               transactionHash={selfSponsoredTransactionHash}
+                              showUserOpHash={true}
                             />
                           ) : (
                             <div className="border p-4 rounded-lg bg-gray-50">
@@ -230,7 +236,6 @@ export default function Home() {
                             bondedShmon={bondedShmon}
                             onBond={handleBondMonToShmon}
                             loading={loading}
-                            txStatus={txStatus}
                           />
 
                           {embeddedWallet && (
@@ -243,6 +248,7 @@ export default function Home() {
                               txStatus={txStatus}
                               description="Transfer funds directly from your embedded EOA wallet"
                               transactionHash={eoaTransactionHash}
+                              showUserOpHash={false}
                             />
                           )}
                         </>

@@ -14,6 +14,7 @@ interface TransactionFormProps {
   description?: string;
   isFastlaneSponsored?: boolean;
   transactionHash?: string;
+  showUserOpHash?: boolean;
 }
 
 export default function TransactionForm({
@@ -29,6 +30,7 @@ export default function TransactionForm({
   description,
   isFastlaneSponsored = false,
   transactionHash,
+  showUserOpHash = true,
 }: TransactionFormProps) {
   const [recipient, setRecipient] = useState('');
   const [amount, setAmount] = useState(defaultAmount);
@@ -134,19 +136,21 @@ export default function TransactionForm({
 
         {disabled && disabledReason && <p className="text-red-500 text-sm">{disabledReason}</p>}
 
-        {/* Display UserOp Hash if available */}
+        {/* Display UserOp Hash if available and showUserOpHash is true */}
         {txHash && (
           <div className="mt-3 p-3 bg-gray-50 rounded-md">
-            <p>
-              <strong>UserOp Hash:</strong>{' '}
-              <span className="break-all font-mono text-gray-600">
-                {txHash}
-              </span>
-            </p>
+            {showUserOpHash && (
+              <p>
+                <strong>UserOp Hash:</strong>{' '}
+                <span className="break-all font-mono text-gray-600">
+                  {txHash}
+                </span>
+              </p>
+            )}
             
             {/* Display Transaction Hash if available with links to both transaction and event log */}
             {finalTransactionHash && (
-              <div className="mt-2">
+              <div className={showUserOpHash ? "mt-2" : ""}>
                 <p>
                   <strong>Transaction Hash:</strong>{' '}
                   <a 

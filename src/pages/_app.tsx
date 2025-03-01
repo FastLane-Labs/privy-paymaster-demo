@@ -10,7 +10,7 @@ export default function App({ Component, pageProps }: AppProps) {
       config={{
         loginMethods: ['email', 'wallet'],
         embeddedWallets: {
-          createOnLogin: 'users-without-wallets',
+          createOnLogin: 'all-users',
         },
         appearance: {
           theme: 'light',

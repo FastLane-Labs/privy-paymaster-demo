@@ -1,13 +1,14 @@
 import { useState } from 'react';
-import { MONAD_CHAIN, publicClient } from '@/utils/config';
-import { Account, encodeFunctionData, parseEther, WalletClient, type Address, type Hex } from 'viem';
+import { ENTRY_POINT_ADDRESS, MONAD_CHAIN, publicClient } from '@/utils/config';
+import { Account, encodeFunctionData, parseEther, SignableMessage, WalletClient, type Address, type Hex } from 'viem';
 import shmonadAbi from '@/abis/shmonad.json';
 import { WalletManagerState } from './useWalletManager';
 import { ShBundlerClient } from '@/utils/bundler';
 import { isAddress, maxUint256 } from 'viem';
-import { UserOperation } from 'viem/account-abstraction';
+import { SmartAccount, toPackedUserOperation, UserOperation } from 'viem/account-abstraction';
 import { logger } from '../utils/logger';
 import { generateSelfSponsoredPaymasterAndData } from '@/utils/paymasterClients';
+import { getUserOperationHash } from '@/utils/getUserOperation';
 
 // Helper function to serialize BigInt values for logging
 function serializeBigInt(obj: any): any {
@@ -220,7 +221,7 @@ export function useTransactions(walletManager: TransactionWalletManager) {
         targetAddress = to as Address;
         logger.debug('Using provided recipient address', targetAddress);
       } else {
-        targetAddress = smartAccount.address;
+        targetAddress = walletClient.account?.address as Address;
         logger.warn(
           'Invalid or empty recipient address, using smart account address as fallback',
           targetAddress
@@ -256,7 +257,15 @@ export function useTransactions(walletManager: TransactionWalletManager) {
         
         // First create the user operation but don't send it
         const userOperation = await bundlerWithPaymaster.prepareUserOperation({
-          account: walletClient.account,
+          account: {
+            client: walletClient,
+            entryPoint: {
+              abi: [],
+              address: ENTRY_POINT_ADDRESS,
+              version: '0.7',
+            },
+            getAddress: async () => walletClient.account?.address as Address,
+          } as SmartAccount,
           calls: [
             {
               to: targetAddress,
@@ -271,11 +280,21 @@ export function useTransactions(walletManager: TransactionWalletManager) {
         });
 
         logger.userOp('User operation prepared', userOperation);
+        
+
+        const _userOpHash = getUserOperationHash({
+          chainId: MONAD_CHAIN.id,
+          entryPointAddress: ENTRY_POINT_ADDRESS,
+          entryPointVersion: '0.7',
+          userOperation: userOperation,
+        });
 
         // STEP 2: Explicitly sign the user operation
         logger.info('Explicitly signing the user operation with smart account owner...');
-        const signature = await smartAccount.signUserOperation(userOperation);
-
+        const signature = await walletClient.signMessage({
+          message: { raw: _userOpHash } as SignableMessage,
+          account: walletClient.account as Account,
+        });
         // Update the signature in the user operation
         userOperation.signature = signature;
         logger.debug('User operation signed with signature', signature.substring(0, 10) + '...');

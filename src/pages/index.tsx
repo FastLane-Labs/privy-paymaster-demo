@@ -13,7 +13,7 @@ import TransactionForm from '@/components/TransactionForm';
 import BondMonForm from '@/components/BondMonForm';
 
 // Demo types
-type DemoType = 'paymaster' | 'eoa-sponsored' | 'self-sponsored' | 'bond-mon' | 'eoa-direct';
+type DemoType = 'paymaster' | 'self-sponsored' | 'bond-mon' | 'eoa-direct';
 
 export default function Home() {
   const { login, authenticated, ready } = usePrivy();
@@ -46,7 +46,6 @@ export default function Home() {
     sendTransaction,
     sendSponsoredTransaction,
     sendSelfSponsoredTransaction,
-    sendSponsoredTransactionFromEOA,
     bondMonToShmon,
     setTxStatus,
   } = txOperations;
@@ -55,7 +54,6 @@ export default function Home() {
   const [selfSponsoredTransactionHash, setSelfSponsoredTransactionHash] = useState<string | undefined>();
   const [sponsoredTransactionHash, setSponsoredTransactionHash] = useState<string | undefined>();
   const [eoaTransactionHash, setEoaTransactionHash] = useState<string | undefined>();
-  const [eoaSponsoredTransactionHash, setEoaSponsoredTransactionHash] = useState<string | undefined>();
 
   // Wrapper for self-sponsored transaction to capture transaction hash
   const handleSelfSponsoredTransaction = async (recipient: string, amount: string) => {
@@ -70,14 +68,6 @@ export default function Home() {
     const result = await sendSponsoredTransaction(recipient, amount);
     if (result && typeof result === 'object' && 'transactionHash' in result) {
       setSponsoredTransactionHash(result.transactionHash);
-    }
-  };
-
-  // Wrapper for sponsored transaction from EOA to capture transaction hash
-  const handleSponsoredTransactionFromEOA = async (recipient: string, amount: string) => {
-    const result = await sendSponsoredTransactionFromEOA(recipient, amount);
-    if (result && typeof result === 'object' && 'transactionHash' in result) {
-      setEoaSponsoredTransactionHash(result.transactionHash);
     }
   };
 
@@ -109,7 +99,6 @@ export default function Home() {
   // Demo options for the dropdown
   const demoOptions = [
     { value: 'paymaster', label: 'Paymaster Sponsored Transaction' },
-    { value: 'eoa-sponsored', label: 'Sponsored Transaction from EOA' },
     { value: 'self-sponsored', label: 'Self Sponsored Transaction', disabled: bondedShmon === '0' },
     { value: 'bond-mon', label: 'Bond MON to shMON' },
     { value: 'eoa-direct', label: 'Direct EOA Transaction', disabled: !embeddedWallet }
@@ -147,26 +136,6 @@ export default function Home() {
               description="Transaction fees are covered by the Fastlane paymaster contract"
               isFastlaneSponsored={true}
               transactionHash={sponsoredTransactionHash}
-              showUserOpHash={true}
-            />
-          </div>
-        );
-      
-      case 'eoa-sponsored':
-        return (
-          <div className={!isSmartAccountReady ? "opacity-75 pointer-events-none" : ""}>
-            <TransactionForm
-              title="Send Sponsored Transaction from EOA"
-              buttonText="Send from EOA with Sponsorship"
-              onSubmit={handleSponsoredTransactionFromEOA}
-              loading={loading}
-              disabled={!isSmartAccountReady}
-              disabledReason={!isSmartAccountReady ? "Waiting for smart account to initialize" : undefined}
-              txHash={sponsoredTxHash} 
-              txStatus={sponsoredTxStatus}
-              description="Transaction from EOA with fees sponsored by the paymaster"
-              isFastlaneSponsored={true}
-              transactionHash={eoaSponsoredTransactionHash}
               showUserOpHash={true}
             />
           </div>

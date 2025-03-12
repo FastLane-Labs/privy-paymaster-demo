@@ -43,7 +43,7 @@ export default function ContractAddresses({
         <strong>shMON:</strong> <span className="break-all">{shmonad}</span>
       </p>
       <p>
-        <strong>Paymaster Deposit:</strong> {formatEther(BigInt(paymasterDeposit))} MON
+        <strong>Paymaster Deposit:</strong> {paymasterDeposit ? formatEther(BigInt(paymasterDeposit)) : 'N/A'} MON
       </p>
     </div>
   );

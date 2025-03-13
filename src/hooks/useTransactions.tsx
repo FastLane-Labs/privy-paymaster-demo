@@ -7,12 +7,11 @@ import { WalletManagerState } from './useWalletManager';
 import { ShBundler } from '@/utils/bundler';
 import { logger } from '../utils/logger';
 import { generateSelfSponsoredPaymasterAndData } from '@/utils/paymasterClients';
+import { UserOperation } from 'viem/account-abstraction';
 
 // Helper function to serialize BigInt values for logging
 function serializeBigInt(obj: any): any {
-  return JSON.stringify(obj, (_, value) => 
-    typeof value === 'bigint' ? value.toString() : value
-  );
+  return JSON.stringify(obj, (_, value) => (typeof value === 'bigint' ? value.toString() : value));
 }
 
 // State for all transaction-related statuses and hashes
@@ -36,7 +35,10 @@ type TransactionsHookReturn = TransactionState & {
   // Transaction functions
   sendTransaction: (recipient: string, amount: string) => Promise<string | null>;
   sendSponsoredTransaction: (to: string, amount: string) => Promise<TransactionResult | null>;
-  sendSelfSponsoredTransaction: (recipient: string, amount: string) => Promise<TransactionResult | null | undefined>;
+  sendSelfSponsoredTransaction: (
+    recipient: string,
+    amount: string
+  ) => Promise<TransactionResult | null | undefined>;
   bondMonToShmon: (amount?: string) => Promise<any>;
   setTxStatus: (status: string) => void;
 };
@@ -44,15 +46,15 @@ type TransactionsHookReturn = TransactionState & {
 // Helper function for consistent error handling
 function handleTransactionError(error: any, setStatusFn: (status: string) => void) {
   logger.error('Transaction error', error);
-  
+
   const errorMessage = error?.message || error?.toString() || 'Unknown error occurred';
   setStatusFn(`Error: ${errorMessage}`);
-  
+
   // Specific error handling for AA errors
   if (errorMessage.includes('AA') && errorMessage.includes('Execution reverted')) {
     const aaErrorPattern = /(AA\d+: [\w\s]+)/;
     const match = errorMessage.match(aaErrorPattern);
-    
+
     if (match && match[1]) {
       setStatusFn(`Error: ${match[1]}`);
     }
@@ -60,18 +62,16 @@ function handleTransactionError(error: any, setStatusFn: (status: string) => voi
 }
 
 // Hook for managing all transaction operations
-export function useTransactions(
-  walletManager: WalletManagerState
-): TransactionsHookReturn {
-  const { 
-    smartAccount, 
+export function useTransactions(walletManager: WalletManagerState): TransactionsHookReturn {
+  const {
+    smartAccount,
     bundler,
     bundlerWithPaymaster,
     bundlerWithoutPaymaster,
     smartAccountClient,
     walletClient,
     contractAddresses,
-    embeddedWallet
+    embeddedWallet,
   } = walletManager;
 
   // Transaction status states
@@ -92,7 +92,7 @@ export function useTransactions(
       setTxStatus('Wallet client not initialized');
       return null;
     }
-    
+
     try {
       setTxStatus('Preparing transaction...');
 
@@ -144,7 +144,7 @@ export function useTransactions(
       logger.info('Starting sponsored transaction flow');
       logger.debug('Recipient address received', to);
       setSponsoredTxStatus('Preparing transaction...');
-      
+
       // Validate inputs
       if (!smartAccount || !bundlerWithPaymaster) {
         logger.error('Smart account or bundler with paymaster not initialized');
@@ -155,7 +155,7 @@ export function useTransactions(
       // Default gas limit values from demo script
       const paymasterVerificationGasLimit = 75000n;
       const paymasterPostOpGasLimit = 120000n;
-      
+
       // Check if recipient address is valid - if not, use smart account address as fallback
       let targetAddress: Address;
       if (to && isAddress(to)) {
@@ -163,7 +163,10 @@ export function useTransactions(
         logger.debug('Using provided recipient address', targetAddress);
       } else {
         targetAddress = smartAccount.address;
-        logger.warn('Invalid or empty recipient address, using smart account address as fallback', targetAddress);
+        logger.warn(
+          'Invalid or empty recipient address, using smart account address as fallback',
+          targetAddress
+        );
       }
 
       // Convert amount from ETH to wei
@@ -176,19 +179,19 @@ export function useTransactions(
         setSponsoredTxStatus('Invalid amount');
         return null;
       }
-      
+
       // Get gas prices from the bundler
       logger.info('Getting gas prices...');
       setSponsoredTxStatus('Getting gas prices...');
-      
+
       const gasPrice = await bundlerWithPaymaster.getUserOperationGasPrice();
       logger.gasPrice('Gas prices received', gasPrice);
-      
+
       try {
         // STEP 1: Prepare the user operation
         logger.info('Preparing and signing user operation...');
         setSponsoredTxStatus('Preparing and signing user operation...');
-        
+
         // First create the user operation but don't send it
         const userOperation = await bundlerWithPaymaster.prepareUserOperation({
           account: smartAccount,
@@ -205,21 +208,24 @@ export function useTransactions(
           paymasterPostOpGasLimit,
           // Add explicit gas limits to ensure they're not set to zero
           callGasLimit: 100000n, // Explicit reasonable default
-          verificationGasLimit: 300000n, // Explicit reasonable default  
+          verificationGasLimit: 300000n, // Explicit reasonable default
           preVerificationGas: 210000n, // Explicit reasonable default
         });
-        
+
         // Simplified logging - just essentials
         logger.info('User operation prepared successfully');
-        
+
         // STEP 2: Explicitly sign the user operation
         logger.info('Signing the user operation...');
         const signature = await smartAccount.signUserOperation(userOperation);
-        
+
         // Update the signature in the user operation
         userOperation.signature = signature;
-        logger.debug('User operation signed with signature');
-        
+        logger.debug('User operation signed with signature', {
+          signatureStart: signature.substring(0, 10) + '...',
+          signatureLength: signature.length,
+        });
+
         // Create a plain object copy instead of using structuredClone which can't handle functions
         // This ensures we only include serializable properties
         const finalUserOp = {
@@ -235,58 +241,65 @@ export function useTransactions(
           paymasterVerificationGasLimit: userOperation.paymasterVerificationGasLimit,
           paymasterPostOpGasLimit: userOperation.paymasterPostOpGasLimit,
           // Include EntryPoint version specific fields
-          ...(('paymaster' in userOperation && userOperation.paymaster) ? 
-            { paymaster: userOperation.paymaster } : {}),
-          ...(('paymasterData' in userOperation && userOperation.paymasterData) ? 
-            { paymasterData: userOperation.paymasterData } : {}),
-          ...(('paymasterAndData' in userOperation && userOperation.paymasterAndData) ? 
-            { paymasterAndData: userOperation.paymasterAndData } : {})
+          ...('paymaster' in userOperation && userOperation.paymaster
+            ? { paymaster: userOperation.paymaster }
+            : {}),
+          ...('paymasterData' in userOperation && userOperation.paymasterData
+            ? { paymasterData: userOperation.paymasterData }
+            : {}),
+          ...('paymasterAndData' in userOperation && userOperation.paymasterAndData
+            ? { paymasterAndData: userOperation.paymasterAndData }
+            : {}),
         };
-        
+
         // STEP 3: Send the signed user operation
         logger.info('Submitting signed user operation...');
         setSponsoredTxStatus('Submitting signed transaction...');
-        
+
         // We must create a new sendUserOperation call with the account parameter
         // This is required by the API - the account is used for type checking and validation
         // but not for signing (since we already signed the operation)
         // Cast to any first to handle type conversion safely
         const userOpHash = await bundlerWithPaymaster.sendUserOperation(finalUserOp as any);
-        
+
         logger.info('Sponsored transaction submitted with hash', userOpHash);
         setSponsoredTxHash(userOpHash);
         setSponsoredTxStatus('Transaction submitted, waiting for confirmation...');
-        
+
         // Wait for receipt
-        const receipt = await bundlerWithPaymaster.waitForUserOperationReceipt({ hash: userOpHash });
+        const receipt = await bundlerWithPaymaster.waitForUserOperationReceipt({
+          hash: userOpHash,
+        });
         logger.info('Sponsored transaction confirmed! Hash', receipt.receipt.transactionHash);
-        
+
         // Update status with transaction hash
-        setSponsoredTxStatus(`Sponsored transaction confirmed! Transaction hash: ${receipt.receipt.transactionHash}`);
-        
+        setSponsoredTxStatus(
+          `Sponsored transaction confirmed! Transaction hash: ${receipt.receipt.transactionHash}`
+        );
+
         return {
           userOpHash: userOpHash,
-          transactionHash: receipt.receipt.transactionHash
+          transactionHash: receipt.receipt.transactionHash,
         };
       } catch (error) {
         logger.error('Sponsored transaction failed', error);
-        
+
         let errorMessage = 'Transaction failed';
         if (error instanceof Error) {
           errorMessage = error.message;
         }
-        
+
         setSponsoredTxStatus(`Transaction failed: ${errorMessage}`);
         return null;
       }
     } catch (error) {
       logger.error('Error in sendSponsoredTransaction', error);
-      
+
       let errorMessage = 'Unknown error in transaction';
       if (error instanceof Error) {
         errorMessage = error.message;
       }
-      
+
       setSponsoredTxStatus(`Error: ${errorMessage}`);
       return null;
     }
@@ -313,7 +326,7 @@ export function useTransactions(
       setSelfSponsoredTxStatus('Paymaster address not available');
       return;
     }
-    
+
     try {
       setSelfSponsoredTxStatus('Preparing self-sponsored transaction...');
 
@@ -326,7 +339,9 @@ export function useTransactions(
           ? (recipient as Address)
           : smartAccount.address;
 
-      setSelfSponsoredTxStatus('Sending self-sponsored transaction via bundler without paymaster...');
+      setSelfSponsoredTxStatus(
+        'Sending self-sponsored transaction via bundler without paymaster...'
+      );
 
       // Get gas prices from the bundler without paymaster
       const gasPrice = await bundlerWithoutPaymaster.getUserOperationGasPrice();
@@ -344,45 +359,39 @@ export function useTransactions(
         maxFeePerGas: gasPrice.slow.maxFeePerGas,
         maxPriorityFeePerGas: gasPrice.slow.maxPriorityFeePerGas,
       });
-      
-      // Get paymaster data
+
+      // First get the paymaster data - it contains BigInt values
       const paymasterData = generateSelfSponsoredPaymasterAndData(contractAddresses.paymaster);
-      
-      // Create a plain object copy with paymaster data to avoid structuredClone issues
+      // Combine the prepared operation with the paymaster data
       const userOperation = {
-        sender: preparedUserOperation.sender,
-        nonce: preparedUserOperation.nonce,
-        callData: preparedUserOperation.callData,
-        callGasLimit: preparedUserOperation.callGasLimit || 100000n,
-        verificationGasLimit: preparedUserOperation.verificationGasLimit || 300000n,
-        preVerificationGas: preparedUserOperation.preVerificationGas || 210000n,
-        maxFeePerGas: preparedUserOperation.maxFeePerGas,
-        maxPriorityFeePerGas: preparedUserOperation.maxPriorityFeePerGas,
-        // Add paymaster data
+        ...preparedUserOperation,
         paymaster: paymasterData.paymaster,
         paymasterData: paymasterData.paymasterData,
-        paymasterVerificationGasLimit: BigInt(paymasterData.paymasterVerificationGasLimit),
-        paymasterPostOpGasLimit: BigInt(paymasterData.paymasterPostOpGasLimit),
-        // Initialize signature property that will be set after signing
-        signature: '0x' as Hex
+        // Ensure gas limits are set from the paymaster data (these are BigInt values)
+        paymasterVerificationGasLimit: paymasterData.paymasterVerificationGasLimit,
+        paymasterPostOpGasLimit: paymasterData.paymasterPostOpGasLimit,
+        preVerificationGas: paymasterData.preVerificationGas,
+        verificationGasLimit: paymasterData.verificationGasLimit,
       };
 
-      // Update the signature in the user operation
       // STEP 2: Explicitly sign the user operation
-      logger.info('Signing the user operation...');
+      logger.info('Explicitly signing the user operation with smart account owner...');
       const signature = await smartAccount.signUserOperation(userOperation);
 
       // Update the signature in the user operation
       userOperation.signature = signature;
-      logger.debug('User operation signed with signature');
+      logger.debug('User operation signed with signature', {
+        signatureStart: signature.substring(0, 10) + '...',
+        signatureLength: signature.length,
+      });
 
       // STEP 3: Send the signed user operation
       logger.info('Submitting signed user operation for self-sponsored transaction...');
       setSelfSponsoredTxStatus('Submitting signed self-sponsored transaction...');
 
       // Use the bundler without paymaster to send the transaction
-      // Cast to 'any' to avoid TypeScript errors with different EntryPoint versions
-      const hash = await bundlerWithoutPaymaster.sendUserOperation(userOperation as any);
+      // Cast directly to UserOperation type like in the main branch
+      const hash = await bundlerWithoutPaymaster.sendUserOperation(userOperation as UserOperation);
 
       setSelfSponsoredTxHash(hash);
       setSelfSponsoredTxStatus('Waiting for self-sponsored transaction confirmation...');
@@ -396,7 +405,7 @@ export function useTransactions(
       );
       return {
         userOpHash: hash,
-        transactionHash: receipt.receipt.transactionHash
+        transactionHash: receipt.receipt.transactionHash,
       };
     } catch (error) {
       handleTransactionError(error, setSelfSponsoredTxStatus);
@@ -470,7 +479,7 @@ export function useTransactions(
         throw new Error('No addresses found in wallet client');
       }
       const eoaAddress = addresses[0];
-      
+
       console.log('🔍 Using EOA address for bonding:', eoaAddress);
 
       // Encode the depositAndBond function call
@@ -497,7 +506,7 @@ export function useTransactions(
         value: bondAmount.toString(),
         chainId: MONAD_CHAIN.id,
         bondingFor: smartAccount.address, // Bond for the smart account
-        bondAmount: 'Using all minted shares (type(uint256).max)' // Using all minted shares
+        bondAmount: 'Using all minted shares (type(uint256).max)', // Using all minted shares
       });
 
       // Estimate gas with a safety buffer to prevent "gas limit too low" errors
@@ -546,16 +555,16 @@ export function useTransactions(
     } catch (error) {
       // Use the handleTransactionError helper function for consistent error handling
       handleTransactionError(error, setTxStatus);
-      
+
       // Log the error for debugging purposes
       logger.error('Bond transaction error:', error);
-      
+
       // Check if this is a user rejection error and handle it specifically
       if (error instanceof Error) {
         const errorMessage = error.message.toLowerCase();
         if (
-          errorMessage.includes('user rejected') || 
-          errorMessage.includes('user denied') || 
+          errorMessage.includes('user rejected') ||
+          errorMessage.includes('user denied') ||
           errorMessage.includes('cancelled by user') ||
           errorMessage.includes('canceled by user') ||
           errorMessage.includes('rejected the request')
@@ -564,7 +573,7 @@ export function useTransactions(
           setTxStatus('Transaction canceled: You rejected the bond transaction request.');
         }
       }
-      
+
       return null;
     }
   }
@@ -578,7 +587,7 @@ export function useTransactions(
     sponsoredTxStatus,
     selfSponsoredTxHash,
     selfSponsoredTxStatus,
-    
+
     // Functions
     sendTransaction,
     sendSponsoredTransaction,

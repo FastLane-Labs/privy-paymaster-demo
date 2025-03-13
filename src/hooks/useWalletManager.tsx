@@ -1,10 +1,9 @@
 import { useState, useEffect } from 'react';
 import { usePrivy, useWallets, useCreateWallet, ConnectedWallet } from '@privy-io/react-auth';
 import { 
-  initBundler, 
-  initBundlerWithPaymaster, 
-  type ShBundlerClient, 
-  createShBundlerClient 
+  initShBundler,
+  initBasicBundler,
+  type ShBundler
 } from '@/utils/bundler';
 import {
   publicClient,
@@ -92,9 +91,9 @@ export type WalletManagerState = {
   embeddedWallet: ConnectedWallet | null;
   smartAccount: any | null;
   smartAccountClient: any | null;
-  bundler: ShBundlerClient | null;
-  bundlerWithPaymaster: ShBundlerClient | null;
-  bundlerWithoutPaymaster: ShBundlerClient | null;
+  bundler: ShBundler | null;
+  bundlerWithPaymaster: ShBundler | null;
+  bundlerWithoutPaymaster: ShBundler | null;
   walletClient: WalletClient | null;
   loading: boolean;
   contractAddresses: {
@@ -114,9 +113,9 @@ export function useWalletManager() {
   const [embeddedWallet, setEmbeddedWallet] = useState<ConnectedWallet | null>(null);
   const [smartAccount, setSmartAccount] = useState<any>(null);
   const [smartAccountClient, setSmartAccountClient] = useState<any>(null);
-  const [bundler, setBundler] = useState<ShBundlerClient | null>(null);
-  const [bundlerWithPaymaster, setBundlerWithPaymaster] = useState<ShBundlerClient | null>(null);
-  const [bundlerWithoutPaymaster, setBundlerWithoutPaymaster] = useState<ShBundlerClient | null>(null);
+  const [bundler, setBundler] = useState<ShBundler | null>(null);
+  const [bundlerWithPaymaster, setBundlerWithPaymaster] = useState<ShBundler | null>(null);
+  const [bundlerWithoutPaymaster, setBundlerWithoutPaymaster] = useState<ShBundler | null>(null);
   const [walletClient, setWalletClient] = useState<WalletClient | null>(null);
   const [loading, setLoading] = useState(false);
   const [contractAddresses, setContractAddresses] = useState({
@@ -196,15 +195,14 @@ export function useWalletManager() {
             // Configure ShBundler URL
             const bundlerUrl = SHBUNDLER_URL;
             console.log('📝 STEP 3: Creating ShBundler client with URL:', bundlerUrl);
-            const bundlerClient = createShBundlerClient({
-              transport: http(bundlerUrl),
-              entryPoint: {
-                address: entryPoint07Address as Address,
-                version: '0.7',
-              },
+            
+            // First create a wallet client from the provider
+            const walletClient = createWalletClient({
+              chain: MONAD_CHAIN,
+              transport: custom(provider),
             });
-            console.log('✅ STEP 3 COMPLETE: ShBundler client created');
-
+            setWalletClient(walletClient);
+            
             console.log('📝 STEP 4: Creating smart account...');
             // Create a Safe Smart Account instead of Simple Smart Account
             try {
@@ -265,7 +263,9 @@ export function useWalletManager() {
                   userOperation: {
                     estimateFeesPerGas: async () => {
                       console.log('Estimating gas fees through user operation...');
-                      const gasPrice = await bundlerClient.getUserOperationGasPrice();
+                      // Create a temporary bundler to get gas prices
+                      const tempBundler = initBasicBundler(safeSmartAccount, client);
+                      const gasPrice = await tempBundler.getUserOperationGasPrice();
                       return gasPrice.fast;
                     },
                   }
@@ -301,15 +301,16 @@ export function useWalletManager() {
                     const paymasterClient = createApiPaymasterClient();
                     
                     console.log('📝 STEP 7B: Initializing bundler with paymaster...');
-                    const bundlerWithPaymasterInstance = initBundlerWithPaymaster(
+                    const bundlerWithPaymasterInstance = initShBundler(
                       safeSmartAccount,
                       client,
-                      paymasterClient
+                      paymasterClient,
+                      'sponsor'
                     );
                     
                     // Create a bundler without paymaster for self-sponsored transactions
                     console.log('📝 STEP 7C: Initializing bundler without paymaster for self-sponsored transactions...');
-                    const bundlerWithoutPaymasterInstance = initBundler(safeSmartAccount, client);
+                    const bundlerWithoutPaymasterInstance = initBasicBundler(safeSmartAccount, client);
                     
                     // Update the bundlers
                     console.log('✅ STEP 7 COMPLETE: Created both bundler types');
@@ -323,7 +324,7 @@ export function useWalletManager() {
                     console.error('❌ Error setting up paymaster:', paymasterError);
                     console.log('⚠️ Falling back to bundler without paymaster');
                     // Fall back to the regular bundler without paymaster
-                    const regularBundler = initBundler(safeSmartAccount, client);
+                    const regularBundler = initBasicBundler(safeSmartAccount, client);
                     setBundlerWithoutPaymaster(regularBundler);
                     setBundler(regularBundler);
                   }
@@ -333,7 +334,8 @@ export function useWalletManager() {
                   console.error('❌ STEP 6/7 FAILED: Error getting contract addresses:', error);
                   console.log('⚠️ Falling back to regular bundler');
                   // Fall back to regular bundler without paymaster integration
-                  setBundler(bundlerClient);
+                  const regularBundler = initBasicBundler(safeSmartAccount, client);
+                  setBundler(regularBundler);
                 }
               } catch (safeAccountCreationError) {
                 console.error('💥 ERROR IN toSafeSmartAccount:', safeAccountCreationError);

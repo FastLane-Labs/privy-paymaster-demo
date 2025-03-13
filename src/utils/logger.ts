@@ -126,16 +126,40 @@ export const formatObject = (obj: any): any => {
 export const formatUserOp = (userOp: any): any => {
   if (!userOp) return null;
   
+  // Helper to safely convert values to string
+  const safeToString = (value: any): string => {
+    if (value === undefined || value === null) return 'not set';
+    if (typeof value === 'bigint') return value.toString();
+    if (typeof value === 'object') {
+      try {
+        return JSON.stringify(value, (_, v) => typeof v === 'bigint' ? v.toString() : v);
+      } catch (e) {
+        return '[Complex Object]';
+      }
+    }
+    return String(value);
+  };
+  
   return {
     sender: userOp.sender,
-    nonce: userOp.nonce?.toString() || 'not set',
-    callGasLimit: userOp.callGasLimit?.toString() || 'not set',
+    nonce: safeToString(userOp.nonce),
+    callGasLimit: safeToString(userOp.callGasLimit),
+    verificationGasLimit: safeToString(userOp.verificationGasLimit),
+    preVerificationGas: safeToString(userOp.preVerificationGas),
+    maxFeePerGas: safeToString(userOp.maxFeePerGas),
+    maxPriorityFeePerGas: safeToString(userOp.maxPriorityFeePerGas),
     // Only show first 10 chars of long hex strings
     signature: userOp.signature ? 
       `${userOp.signature.substring(0, 10)}...` : 'not set',
+    // Handle both v0.6 and v0.7 paymaster formats
     paymasterAndData: userOp.paymasterAndData ? 
       (userOp.paymasterAndData === '0x' ? '0x' : 
-       `${userOp.paymasterAndData.substring(0, 10)}...`) : 'not set'
+       `${userOp.paymasterAndData.substring(0, 10)}...`) : 'not set',
+    paymaster: userOp.paymaster || 'not set',
+    paymasterData: userOp.paymasterData ? 
+      `${userOp.paymasterData.substring(0, 10)}...` : 'not set',
+    paymasterVerificationGasLimit: safeToString(userOp.paymasterVerificationGasLimit),
+    paymasterPostOpGasLimit: safeToString(userOp.paymasterPostOpGasLimit)
   };
 };
 

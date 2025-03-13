@@ -34,10 +34,10 @@ export function createApiPaymasterClient(): PaymasterClient {
 export function generateSelfSponsoredPaymasterAndData(paymasterAddress: Address): {
   paymaster: Address;
   paymasterData: Hex;
-  paymasterVerificationGasLimit: bigint;
-  paymasterPostOpGasLimit: bigint;
-  preVerificationGas: bigint;
-  verificationGasLimit: bigint;
+  paymasterVerificationGasLimit: string;
+  paymasterPostOpGasLimit: string;
+  preVerificationGas: string;
+  verificationGasLimit: string;
 } {
   console.log('🔨 Creating local paymaster client using local endpoint');
   
@@ -45,10 +45,12 @@ export function generateSelfSponsoredPaymasterAndData(paymasterAddress: Address)
   // This will automatically handle the RPC calls to our local endpoint
 
   const paymasterData = paymasterMode('user') as Hex;
-  const paymasterVerificationGasLimit = 75000n; // fine-tuned for the fastlane paymaster
-  const paymasterPostOpGasLimit = 120000n; // fine-tuned for the fastlane paymaster
-  const preVerificationGas = 217335n; // fine-tuned for the fastlane paymaster
-  const verificationGasLimit = 328107n; // fine-tuned for the fastlane paymaster
+  
+  // Store these values as strings instead of BigInt for JSON serialization
+  const paymasterVerificationGasLimit = '75000'; // fine-tuned for the fastlane paymaster
+  const paymasterPostOpGasLimit = '120000';      // fine-tuned for the fastlane paymaster
+  const preVerificationGas = '217335';           // fine-tuned for the fastlane paymaster
+  const verificationGasLimit = '328107';         // fine-tuned for the fastlane paymaster
 
   return {
     paymaster: paymasterAddress,

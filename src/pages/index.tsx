@@ -222,8 +222,9 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-gray-100 py-6 flex flex-col justify-center sm:py-12">
       <Head>
-        <title>Privy + Account Abstraction Demo</title>
-        <meta name="description" content="Privy demo with Account Abstraction" />
+        <title>Privy Account Abstraction Demo</title>
+        <meta name="description" content="Demo for Privy with Account Abstraction" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
         <link rel="icon" href="/favicon.ico" />
       </Head>
 

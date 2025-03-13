@@ -238,11 +238,15 @@ async function handleGetPaymasterData(req: NextApiRequest, res: NextApiResponse)
     // Extract parameters
     const [userOperation, entryPointAddress, chainId, context] = params;
     
+    // Keep minimal essential logging
+    logger.info('Processing paymaster data request');
+    
     // Detect EntryPoint version based on the address
     const isEntryPointV07 = entryPointAddress == entryPoint07Address;
     
     // QUICK VALIDATION - must respond fast to avoid timeouts
     if (!userOperation || !userOperation.sender || !entryPointAddress || !chainId) {
+      logger.error('Invalid params: Missing required parameters');
       return res.status(400).json({
         jsonrpc: '2.0',
         id,
@@ -267,6 +271,7 @@ async function handleGetPaymasterData(req: NextApiRequest, res: NextApiResponse)
     );
     
     if (!signResult) {
+      logger.error('Failed to sign user operation');
       return res.status(500).json({
         jsonrpc: '2.0',
         id,
@@ -282,6 +287,8 @@ async function handleGetPaymasterData(req: NextApiRequest, res: NextApiResponse)
     
     // Format the combined paymasterAndData field if needed
     const formattedPaymasterAndData = `0x${paymasterAddress.slice(2)}${paymasterData.slice(2)}` as Hex;
+    
+    logger.info('Paymaster data generated successfully');
     
     // Return successful response based on EntryPoint version
     if (isEntryPointV07) {
@@ -335,11 +342,15 @@ async function handleGetPaymasterStubData(req: NextApiRequest, res: NextApiRespo
     // Extract parameters
     const [userOperation, entryPointAddress, chainId, context] = params;
     
+    // Keep minimal essential logging
+    logger.info('Processing paymaster stub data request');
+    
     // Detect EntryPoint version based on the address
     const isEntryPointV07 = entryPointAddress == entryPoint07Address;
     
     // Validate required parameters
     if (!userOperation || !userOperation.sender || !entryPointAddress || !chainId) {
+      logger.error('Invalid params: Missing required parameters');
       return res.status(400).json({
         jsonrpc: '2.0',
         id,
@@ -354,6 +365,7 @@ async function handleGetPaymasterStubData(req: NextApiRequest, res: NextApiRespo
     // Get paymaster address
     const paymasterAddress = await getPaymasterAddress();
     if (!paymasterAddress) {
+      logger.error('Could not retrieve paymaster address');
       return res.status(500).json({
         jsonrpc: '2.0',
         id,
@@ -370,14 +382,15 @@ async function handleGetPaymasterStubData(req: NextApiRequest, res: NextApiRespo
     
     // Return response based on EntryPoint version
     if (isEntryPointV07) {
+      // Convert BigInt values to strings for proper JSON serialization
       return res.status(200).json({
         jsonrpc: '2.0',
         id,
         result: {
           paymaster: paymasterAddress,
           paymasterData: '0x' + '00'.repeat(64) as Hex,
-          paymasterVerificationGasLimit: 75000n,
-          paymasterPostOpGasLimit: 120000n,
+          paymasterVerificationGasLimit: '75000',
+          paymasterPostOpGasLimit: '120000',
           sponsor: {
             name: 'Fastlane Paymaster'
           },

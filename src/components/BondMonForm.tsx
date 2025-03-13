@@ -14,16 +14,18 @@ export default function BondMonForm({ bondedShmon, onBond, loading }: BondMonFor
   const [bondTxStatus, setBondTxStatus] = useState('');
   const [bondTxHash, setBondTxHash] = useState('');
   const isBonded = bondedShmon !== '0';
-  
+
   // Check if the status indicates an error or user rejection
-  const isError = bondTxStatus.toLowerCase().includes('error') || 
-                 bondTxStatus.toLowerCase().includes('failed') || 
-                 bondTxStatus.toLowerCase().includes('invalid');
-  
+  const isError =
+    bondTxStatus.toLowerCase().includes('error') ||
+    bondTxStatus.toLowerCase().includes('failed') ||
+    bondTxStatus.toLowerCase().includes('invalid');
+
   // Specifically check for user rejection
-  const isUserRejection = bondTxStatus.toLowerCase().includes('user rejected') || 
-                         bondTxStatus.toLowerCase().includes('user denied') ||
-                         bondTxStatus.toLowerCase().includes('user cancelled');
+  const isUserRejection =
+    bondTxStatus.toLowerCase().includes('user rejected') ||
+    bondTxStatus.toLowerCase().includes('user denied') ||
+    bondTxStatus.toLowerCase().includes('user cancelled');
 
   const copyErrorToClipboard = () => {
     if (bondTxStatus) {
@@ -44,20 +46,23 @@ export default function BondMonForm({ bondedShmon, onBond, loading }: BondMonFor
 
   const errorCodeRegex = /(AA\d+|[-\d]+)/g;
   const highlightedErrorStatus = bondTxStatus
-    ? bondTxStatus.replace(errorCodeRegex, '<span class="font-mono bg-red-100 px-1 rounded">$1</span>')
+    ? bondTxStatus.replace(
+        errorCodeRegex,
+        '<span class="font-mono bg-red-100 px-1 rounded">$1</span>'
+      )
     : '';
 
   // Helper function to handle transaction errors
   const handleTransactionError = (error: unknown) => {
     console.error('Bond transaction error:', error);
-    
+
     if (error instanceof Error) {
       const errorMessage = error.message;
-      
+
       // Check for user rejection patterns in the error message
       if (
-        errorMessage.includes('User rejected') || 
-        errorMessage.includes('User denied') || 
+        errorMessage.includes('User rejected') ||
+        errorMessage.includes('User denied') ||
         errorMessage.includes('User cancelled') ||
         errorMessage.includes('rejected the request')
       ) {
@@ -85,7 +90,7 @@ export default function BondMonForm({ bondedShmon, onBond, loading }: BondMonFor
   };
 
   const handleBondMore = async (e: React.MouseEvent) => {
-    e.preventDefault(); 
+    e.preventDefault();
     setBondTxStatus('Preparing to bond more MON to shMON...');
     try {
       const result = await onBond(bondAmount);
@@ -107,28 +112,35 @@ export default function BondMonForm({ bondedShmon, onBond, loading }: BondMonFor
           </div>
         )}
       </div>
-      
+
       <div className="mb-4">
         <div className="bg-amber-100 border-l-4 border-amber-500 p-3 mb-4">
           <div className="flex items-start">
             <div className="flex-shrink-0">
               <svg className="h-5 w-5 text-amber-500" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2h-1V9z" clipRule="evenodd" />
+                <path
+                  fillRule="evenodd"
+                  d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2h-1V9z"
+                  clipRule="evenodd"
+                />
               </svg>
             </div>
             <div className="ml-3">
               <p className="text-sm text-amber-700">
-                <strong>Important:</strong> Bonding MON to shMON enables your embedded EOA wallet to execute self-sponsored transactions.
+                <strong>Important:</strong> Bonding MON to shMON enables your embedded EOA wallet to
+                execute self-sponsored transactions.
               </p>
             </div>
           </div>
         </div>
-        
+
         {isBonded ? (
           <div className="bg-white p-4 rounded-lg shadow-sm">
             <div className="flex justify-between items-center">
               <span className="text-gray-700">Current Bonded Amount:</span>
-              <span className="font-semibold text-lg">{formatEther(BigInt(bondedShmon))} shMON</span>
+              <span className="font-semibold text-lg">
+                {formatEther(BigInt(bondedShmon))} shMON
+              </span>
             </div>
             <p className="mt-2 text-sm text-gray-600">
               You can now use self-sponsored transactions with your bonded shMON.
@@ -143,7 +155,10 @@ export default function BondMonForm({ bondedShmon, onBond, loading }: BondMonFor
           </div>
         ) : (
           <div>
-            <p className="mb-3 text-gray-700">Bond your MON tokens to shMON to enable self-sponsored transactions for your embedded wallet.</p>
+            <p className="mb-3 text-gray-700">
+              Bond your MON tokens to shMON to enable self-sponsored transactions for your embedded
+              wallet.
+            </p>
             <form onSubmit={handleSubmit} className="bg-white p-4 rounded-lg shadow-sm">
               <div className="flex flex-col gap-1">
                 <label htmlFor="bondAmount" className="text-sm font-medium text-gray-700">
@@ -156,7 +171,7 @@ export default function BondMonForm({ bondedShmon, onBond, loading }: BondMonFor
                     min="0.01"
                     step="0.01"
                     value={bondAmount}
-                    onChange={(e) => setBondAmount(e.target.value)}
+                    onChange={e => setBondAmount(e.target.value)}
                     className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-orange-500 focus:border-orange-500"
                     placeholder="Amount in MON"
                     disabled={loading}
@@ -180,7 +195,9 @@ export default function BondMonForm({ bondedShmon, onBond, loading }: BondMonFor
       </div>
 
       {bondTxStatus && (
-        <div className={`mt-4 ${isUserRejection ? 'text-amber-600' : isError ? 'text-red-600' : 'text-green-600'} bg-white p-3 rounded-lg shadow-sm`}>
+        <div
+          className={`mt-4 ${isUserRejection ? 'text-amber-600' : isError ? 'text-red-600' : 'text-green-600'} bg-white p-3 rounded-lg shadow-sm`}
+        >
           <div className="flex items-center gap-2 mb-1">
             <p>
               <strong>Status:</strong>
@@ -195,16 +212,13 @@ export default function BondMonForm({ bondedShmon, onBond, loading }: BondMonFor
               </button>
             )}
           </div>
-          <p
-            dangerouslySetInnerHTML={{ __html: highlightedErrorStatus }}
-            className="break-words"
-          />
+          <p dangerouslySetInnerHTML={{ __html: highlightedErrorStatus }} className="break-words" />
 
           {bondTxHash && !isError && (
             <div className="mt-2">
               <p>
                 <strong>Transaction hash:</strong>{' '}
-                <a 
+                <a
                   href={`https://monad-testnet.socialscan.io/tx/${bondTxHash}`}
                   target="_blank"
                   rel="noopener noreferrer"

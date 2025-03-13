@@ -16,7 +16,7 @@ const BACKEND_RPC_URL = process.env.RPC_URL || 'https://rpc.ankr.com/monad_testn
 // Create backend-specific public client
 const backendPublicClient = createPublicClient({
   chain: monadTestnet,
-  transport: http(BACKEND_RPC_URL)
+  transport: http(BACKEND_RPC_URL),
 });
 
 // Create a sponsor wallet client using the private key
@@ -26,15 +26,15 @@ if (!SPONSOR_PRIVATE_KEY) {
   logger.error('This is required for the paymaster to work properly');
 }
 
-const sponsorAccount = SPONSOR_PRIVATE_KEY 
-  ? privateKeyToAccount(SPONSOR_PRIVATE_KEY as Hex) 
+const sponsorAccount = SPONSOR_PRIVATE_KEY
+  ? privateKeyToAccount(SPONSOR_PRIVATE_KEY as Hex)
   : undefined;
 
-const sponsorWallet = sponsorAccount 
+const sponsorWallet = sponsorAccount
   ? createWalletClient({
       account: sponsorAccount,
       chain: monadTestnet,
-      transport: http(BACKEND_RPC_URL)
+      transport: http(BACKEND_RPC_URL),
     })
   : undefined;
 
@@ -48,18 +48,18 @@ async function getPaymasterAddress(): Promise<Address | null> {
   }
 
   try {
-    const paymasterAddress = await backendPublicClient.readContract({
+    const paymasterAddress = (await backendPublicClient.readContract({
       address: ADDRESS_HUB,
       abi: addressHubAbi,
       functionName: 'paymaster4337',
-      args: []
-    }) as Address;
-    
+      args: [],
+    })) as Address;
+
     if (!paymasterAddress || paymasterAddress === '0x0000000000000000000000000000000000000000') {
       logger.error('Invalid paymaster address read from contract');
       return null;
     }
-    
+
     return paymasterAddress;
   } catch (error) {
     logger.error('Error reading paymaster address:', error);
@@ -74,10 +74,10 @@ async function signUserOperationWithSponsor(
   userOperation: UserOperation,
   validUntil: bigint,
   validAfter: bigint
-): Promise<{ 
-  signature: Hex, 
-  paymasterAddress: Address,
-  paymasterData: Hex
+): Promise<{
+  signature: Hex;
+  paymasterAddress: Address;
+  paymasterData: Hex;
 } | null> {
   try {
     // Get paymaster address
@@ -86,53 +86,49 @@ async function signUserOperationWithSponsor(
       logger.error('No paymaster address available for signing');
       return null;
     }
-    
+
     // Validate sponsor wallet
     if (!sponsorWallet || !sponsorAccount) {
       logger.error('No sponsor wallet available');
       return null;
     }
-    
+
     // Get hash to sign directly from the contract
-    const hash = await backendPublicClient.readContract({
+    const hash = (await backendPublicClient.readContract({
       address: paymasterAddress,
       abi: paymasterAbi,
       functionName: 'getHash',
-      args: [
-        toPackedUserOperation(userOperation),
-        validUntil,
-        validAfter
-      ]
-    }) as Hex;
-    
+      args: [toPackedUserOperation(userOperation), validUntil, validAfter],
+    })) as Hex;
+
     if (!hash) {
       throw new Error(`Invalid hash returned from paymaster contract ${paymasterAddress}`);
     }
-    
+
     // Sign hash with sponsor wallet
     const signature = await sponsorWallet.signMessage({
       account: sponsorAccount,
       message: { raw: hash },
     });
-    
-    logger.info('Generated signature for user operation', { 
+
+    logger.info('Generated signature for user operation', {
       sender: userOperation.sender,
-      signature: signature.substring(0, 10) + '...'
+      signature: signature.substring(0, 10) + '...',
     });
 
     // Create paymaster data with the signature
     const paymasterData = paymasterMode(
-      "sponsor",
+      'sponsor',
       validUntil,
       validAfter,
       signature as Hex,
       sponsorWallet
     ) as Hex;
-    
-    return { 
-      signature: signature as Hex, 
+
+    return {
+      signature: signature as Hex,
       paymasterAddress,
-      paymasterData
+      paymasterData,
     };
   } catch (error) {
     logger.error('Failed to sign user operation with sponsor:', error);
@@ -145,40 +141,40 @@ async function signUserOperationWithSponsor(
  */
 function formatPaymasterError(error: any, id: any): any {
   const errorMsg = error?.message || 'Unknown error';
-  
+
   if (errorMsg.includes('insufficient') && errorMsg.includes('balance')) {
     return {
       jsonrpc: '2.0',
       id,
-      error: { 
-        code: -32010, 
+      error: {
+        code: -32010,
         message: 'Paymaster has insufficient balance',
-        data: errorMsg
-      }
+        data: errorMsg,
+      },
     };
   }
-  
+
   if (errorMsg.includes('policy') || errorMsg.includes('limit')) {
     return {
       jsonrpc: '2.0',
       id,
-      error: { 
-        code: -32011, 
+      error: {
+        code: -32011,
         message: 'Policy limit exceeded',
-        data: errorMsg
-      }
+        data: errorMsg,
+      },
     };
   }
-  
+
   // Default error
   return {
     jsonrpc: '2.0',
     id,
-    error: { 
-      code: -32603, 
+    error: {
+      code: -32603,
       message: 'Paymaster internal error',
-      data: errorMsg
-    }
+      data: errorMsg,
+    },
   };
 }
 
@@ -199,7 +195,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(400).json({
         jsonrpc: '2.0',
         id: id || null,
-        error: { code: -32600, message: 'Invalid request' }
+        error: { code: -32600, message: 'Invalid request' },
       });
     }
 
@@ -207,15 +203,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     switch (method) {
       case 'pm_getPaymasterData':
         return handleGetPaymasterData(req, res);
-      
+
       case 'pm_getPaymasterStubData':
         return handleGetPaymasterStubData(req, res);
-      
+
       default:
         return res.status(400).json({
           jsonrpc: '2.0',
           id,
-          error: { code: -32601, message: 'Method not found' }
+          error: { code: -32601, message: 'Method not found' },
         });
     }
   } catch (error) {
@@ -223,7 +219,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(500).json({
       jsonrpc: '2.0',
       id: req.body?.id || null,
-      error: { code: -32603, message: 'Internal error', data: (error as Error).message }
+      error: { code: -32603, message: 'Internal error', data: (error as Error).message },
     });
   }
 }
@@ -233,56 +229,64 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
  */
 async function handleGetPaymasterData(req: NextApiRequest, res: NextApiResponse) {
   const { id, params } = req.body;
-  
+
   try {
     // Extract parameters
     const [userOperation, entryPointAddress, chainId, context] = params;
-    
+
+    // Keep minimal essential logging
+    logger.info('Processing paymaster data request');
+
     // Detect EntryPoint version based on the address
     const isEntryPointV07 = entryPointAddress == entryPoint07Address;
-    
+
     // QUICK VALIDATION - must respond fast to avoid timeouts
     if (!userOperation || !userOperation.sender || !entryPointAddress || !chainId) {
+      logger.error('Invalid params: Missing required parameters');
       return res.status(400).json({
         jsonrpc: '2.0',
         id,
-        error: { 
-          code: -32602, 
+        error: {
+          code: -32602,
           message: 'Invalid params',
-          data: 'Required parameters: userOperation, entryPointAddress, chainId' 
-        }
+          data: 'Required parameters: userOperation, entryPointAddress, chainId',
+        },
       });
     }
-    
+
     // Set validity window (valid for 1 hour)
     const currentTime = BigInt(Math.floor(Date.now() / 1000));
     const validUntil = currentTime + BigInt(3600);
     const validAfter = BigInt(0);
-    
+
     // Generate and sign the paymaster data
     const signResult = await signUserOperationWithSponsor(
-      userOperation as UserOperation, 
+      userOperation as UserOperation,
       validUntil,
       validAfter
     );
-    
+
     if (!signResult) {
+      logger.error('Failed to sign user operation');
       return res.status(500).json({
         jsonrpc: '2.0',
         id,
-        error: { 
-          code: -32603, 
+        error: {
+          code: -32603,
           message: 'Failed to sign user operation',
-          data: 'Error generating paymaster signature'
-        }
+          data: 'Error generating paymaster signature',
+        },
       });
     }
-    
+
     const { signature, paymasterAddress, paymasterData } = signResult;
-    
+
     // Format the combined paymasterAndData field if needed
-    const formattedPaymasterAndData = `0x${paymasterAddress.slice(2)}${paymasterData.slice(2)}` as Hex;
-    
+    const formattedPaymasterAndData =
+      `0x${paymasterAddress.slice(2)}${paymasterData.slice(2)}` as Hex;
+
+    logger.info('Paymaster data generated successfully');
+
     // Return successful response based on EntryPoint version
     if (isEntryPointV07) {
       // For EntryPoint v0.7: separate paymaster and paymasterData fields
@@ -293,10 +297,10 @@ async function handleGetPaymasterData(req: NextApiRequest, res: NextApiResponse)
           paymaster: paymasterAddress,
           paymasterData: paymasterData,
           sponsor: {
-            name: 'Fastlane Paymaster'
+            name: 'Fastlane Paymaster',
           },
-          isFinal: true // This is the final data with real signature
-        }
+          isFinal: true, // This is the final data with real signature
+        },
       });
     } else {
       // For EntryPoint v0.6: combined paymasterAndData field plus gas limits
@@ -310,15 +314,15 @@ async function handleGetPaymasterData(req: NextApiRequest, res: NextApiResponse)
           verificationGasLimit: userOperation.verificationGasLimit || '0x501ab',
           callGasLimit: userOperation.callGasLimit || '0x212df',
           sponsor: {
-            name: 'Fastlane Paymaster'
+            name: 'Fastlane Paymaster',
           },
-          isFinal: true // This is the final data with real signature
-        }
+          isFinal: true, // This is the final data with real signature
+        },
       });
     }
   } catch (error) {
     logger.error('Error in getPaymasterData:', error);
-    
+
     // Format the error for consistent response
     const errorResponse = formatPaymasterError(error, id);
     return res.status(500).json(errorResponse);
@@ -330,59 +334,65 @@ async function handleGetPaymasterData(req: NextApiRequest, res: NextApiResponse)
  */
 async function handleGetPaymasterStubData(req: NextApiRequest, res: NextApiResponse) {
   const { id, params } = req.body;
-  
+
   try {
     // Extract parameters
     const [userOperation, entryPointAddress, chainId, context] = params;
-    
+
+    // Keep minimal essential logging
+    logger.info('Processing paymaster stub data request');
+
     // Detect EntryPoint version based on the address
     const isEntryPointV07 = entryPointAddress == entryPoint07Address;
-    
+
     // Validate required parameters
     if (!userOperation || !userOperation.sender || !entryPointAddress || !chainId) {
+      logger.error('Invalid params: Missing required parameters');
       return res.status(400).json({
         jsonrpc: '2.0',
         id,
-        error: { 
-          code: -32602, 
+        error: {
+          code: -32602,
           message: 'Invalid params',
-          data: 'Required parameters: userOperation, entryPointAddress, chainId' 
-        }
+          data: 'Required parameters: userOperation, entryPointAddress, chainId',
+        },
       });
     }
-    
+
     // Get paymaster address
     const paymasterAddress = await getPaymasterAddress();
     if (!paymasterAddress) {
+      logger.error('Could not retrieve paymaster address');
       return res.status(500).json({
         jsonrpc: '2.0',
         id,
-        error: { 
-          code: -32603, 
+        error: {
+          code: -32603,
           message: 'Paymaster address unavailable for stub data',
-          data: 'Could not retrieve paymaster address from hub contract'
-        }
+          data: 'Could not retrieve paymaster address from hub contract',
+        },
       });
     }
-    
+
     // Generate stub paymaster data with zeros for the signature part
     const paymasterAndData = `0x${paymasterAddress.slice(2)}${'00'.repeat(64)}` as Hex;
-    
+
     // Return response based on EntryPoint version
     if (isEntryPointV07) {
+      // Convert BigInt values to strings for proper JSON serialization
       return res.status(200).json({
         jsonrpc: '2.0',
         id,
         result: {
           paymaster: paymasterAddress,
-          paymasterData: '0x' + '00'.repeat(64) as Hex,
-          paymasterVerificationGasLimit: 75000n,
-          paymasterPostOpGasLimit: 120000n,
+          paymasterData: ('0x' + '00'.repeat(64)) as Hex,
+          paymasterVerificationGasLimit: '75000',
+          paymasterPostOpGasLimit: '120000',
           sponsor: {
-            name: 'Fastlane Paymaster'
+            name: 'Fastlane Paymaster',
           },
-          isFinal: false
-        }
+          isFinal: false,
+        },
       });
     } else {
       return res.status(200).json({
@@ -394,17 +404,17 @@ async function handleGetPaymasterStubData(req: NextApiRequest, res: NextApiRespo
           verificationGasLimit: '0x501ab',
           callGasLimit: '0x212df',
           sponsor: {
-            name: 'Fastlane Paymaster'
+            name: 'Fastlane Paymaster',
           },
-          isFinal: false
-        }
+          isFinal: false,
+        },
       });
     }
   } catch (error) {
     logger.error('Error in getPaymasterStubData:', error);
-    
+
     // Format the error for consistent response
     const errorResponse = formatPaymasterError(error, id);
     return res.status(500).json(errorResponse);
   }
-} 
+}

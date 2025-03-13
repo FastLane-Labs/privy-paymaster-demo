@@ -45,8 +45,12 @@ export function paymasterMode(
     if (!accountAddress) {
       throw new Error('userClient.account is undefined');
     }
-    return `0x01${accountAddress.slice(2)}${validUntil.toString(16).padStart(12, '0')}${validAfter
-      .toString(16)
-      .padStart(12, '0')}${sponsorSignature.slice(2)}`;
+
+    // Convert BigInt values to hex strings without '0x' prefix
+    const validUntilHex = validUntil.toString(16).padStart(12, '0');
+    const validAfterHex = validAfter.toString(16).padStart(12, '0');
+
+    // Combine all parts into a single hex string
+    return `0x01${accountAddress.slice(2)}${validUntilHex}${validAfterHex}${sponsorSignature.slice(2)}` as Hex;
   }
 }

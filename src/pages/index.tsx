@@ -51,7 +51,9 @@ export default function Home() {
   } = txOperations;
 
   // State to store transaction hashes
-  const [selfSponsoredTransactionHash, setSelfSponsoredTransactionHash] = useState<string | undefined>();
+  const [selfSponsoredTransactionHash, setSelfSponsoredTransactionHash] = useState<
+    string | undefined
+  >();
   const [sponsoredTransactionHash, setSponsoredTransactionHash] = useState<string | undefined>();
   const [eoaTransactionHash, setEoaTransactionHash] = useState<string | undefined>();
 
@@ -92,29 +94,35 @@ export default function Home() {
 
   // Check if wallet data is still initializing
   const isWalletInitializing = ready && authenticated && (loading || !embeddedWallet);
-  
+
   // Check if smart account and contract data is ready
   const isSmartAccountReady = !!smartAccount && !!contractAddresses.paymaster;
-  
+
   // Demo options for the dropdown
   const demoOptions = [
     { value: 'paymaster', label: 'Paymaster Sponsored Transaction' },
     { value: 'self-sponsored', label: 'Self Sponsored Transaction', disabled: bondedShmon === '0' },
     { value: 'bond-mon', label: 'Bond MON to shMON' },
-    { value: 'eoa-direct', label: 'Direct EOA Transaction', disabled: !embeddedWallet }
+    { value: 'eoa-direct', label: 'Direct EOA Transaction', disabled: !embeddedWallet },
   ];
 
   // Handle demo selection change
   const handleDemoChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     setSelectedDemo(e.target.value as DemoType);
   };
-  
+
   // Rendering helper for loading state
   const renderLoadingIndicator = () => (
     <div className="flex items-center justify-center space-x-2">
       <div className="w-4 h-4 rounded-full bg-blue-500 animate-pulse"></div>
-      <div className="w-4 h-4 rounded-full bg-blue-500 animate-pulse" style={{ animationDelay: '0.2s' }}></div>
-      <div className="w-4 h-4 rounded-full bg-blue-500 animate-pulse" style={{ animationDelay: '0.4s' }}></div>
+      <div
+        className="w-4 h-4 rounded-full bg-blue-500 animate-pulse"
+        style={{ animationDelay: '0.2s' }}
+      ></div>
+      <div
+        className="w-4 h-4 rounded-full bg-blue-500 animate-pulse"
+        style={{ animationDelay: '0.4s' }}
+      ></div>
     </div>
   );
 
@@ -123,14 +131,16 @@ export default function Home() {
     switch (selectedDemo) {
       case 'paymaster':
         return (
-          <div className={!isSmartAccountReady ? "opacity-75 pointer-events-none" : ""}>
+          <div className={!isSmartAccountReady ? 'opacity-75 pointer-events-none' : ''}>
             <TransactionForm
               title="Send Paymaster Sponsored (Transfer)"
               buttonText="Send Transaction"
               onSubmit={handleSponsoredTransaction}
               loading={loading}
               disabled={!isSmartAccountReady}
-              disabledReason={!isSmartAccountReady ? "Waiting for smart account to initialize" : undefined}
+              disabledReason={
+                !isSmartAccountReady ? 'Waiting for smart account to initialize' : undefined
+              }
               txHash={sponsoredTxHash}
               txStatus={sponsoredTxStatus}
               description="Transaction fees are covered by the Fastlane paymaster contract"
@@ -140,18 +150,20 @@ export default function Home() {
             />
           </div>
         );
-      
+
       case 'self-sponsored':
         return (
-          <div className={!isSmartAccountReady ? "opacity-75 pointer-events-none" : ""}>
+          <div className={!isSmartAccountReady ? 'opacity-75 pointer-events-none' : ''}>
             {bondedShmon !== '0' ? (
               <TransactionForm
                 title="Send Self Sponsored (Transfer)"
-                buttonText="Send Transaction" 
+                buttonText="Send Transaction"
                 onSubmit={handleSelfSponsoredTransaction}
                 loading={loading}
                 disabled={!isSmartAccountReady}
-                disabledReason={!isSmartAccountReady ? "Waiting for smart account to initialize" : undefined}
+                disabledReason={
+                  !isSmartAccountReady ? 'Waiting for smart account to initialize' : undefined
+                }
                 txHash={selfSponsoredTxHash}
                 txStatus={selfSponsoredTxStatus}
                 description="Embedded EOA sponsors the smart account"
@@ -161,7 +173,9 @@ export default function Home() {
             ) : (
               <div className="border p-4 rounded-lg bg-gray-50">
                 <h2 className="text-xl font-semibold mb-2">Send Self Sponsored (Transfer)</h2>
-                <p className="text-sm text-gray-600 mb-2">Embedded EOA sponsors the smart account</p>
+                <p className="text-sm text-gray-600 mb-2">
+                  Embedded EOA sponsors the smart account
+                </p>
                 <div className="bg-amber-100 border-l-4 border-amber-500 p-3 mb-4">
                   <p className="text-sm text-amber-700">
                     Bond MON to shMON in the section below to enable self-sponsored transactions
@@ -171,10 +185,10 @@ export default function Home() {
             )}
           </div>
         );
-      
+
       case 'bond-mon':
         return (
-          <div className={!isSmartAccountReady ? "opacity-75 pointer-events-none" : ""}>
+          <div className={!isSmartAccountReady ? 'opacity-75 pointer-events-none' : ''}>
             <BondMonForm
               bondedShmon={bondedShmon}
               onBond={handleBondMonToShmon}
@@ -182,10 +196,10 @@ export default function Home() {
             />
           </div>
         );
-      
+
       case 'eoa-direct':
         return (
-          <div className={!embeddedWallet ? "opacity-75 pointer-events-none" : ""}>
+          <div className={!embeddedWallet ? 'opacity-75 pointer-events-none' : ''}>
             {embeddedWallet ? (
               <TransactionForm
                 title="Send Funds from EOA"
@@ -193,7 +207,9 @@ export default function Home() {
                 onSubmit={handleEoaTransaction}
                 loading={loading}
                 disabled={!embeddedWallet}
-                disabledReason={!embeddedWallet ? "Waiting for embedded wallet to initialize" : undefined}
+                disabledReason={
+                  !embeddedWallet ? 'Waiting for embedded wallet to initialize' : undefined
+                }
                 txHash={txHash}
                 txStatus={txStatus}
                 description="Transfer funds directly from your embedded EOA wallet"
@@ -203,7 +219,9 @@ export default function Home() {
             ) : (
               <div className="border p-4 rounded-lg bg-gray-50">
                 <h2 className="text-xl font-semibold mb-2">Send Funds from EOA</h2>
-                <p className="text-sm text-gray-600 mb-2">Transfer funds directly from your embedded EOA wallet</p>
+                <p className="text-sm text-gray-600 mb-2">
+                  Transfer funds directly from your embedded EOA wallet
+                </p>
                 <div className="bg-blue-100 border-l-4 border-blue-500 p-3 mb-4">
                   <p className="text-sm text-blue-700">
                     Waiting for embedded wallet to initialize...
@@ -213,7 +231,7 @@ export default function Home() {
             )}
           </div>
         );
-      
+
       default:
         return <div>Select a demo to continue</div>;
     }
@@ -236,7 +254,7 @@ export default function Home() {
               Privy + Account Abstraction Demo
             </h1>
           )}
-          
+
           {ready ? (
             authenticated ? (
               <div className="ml-auto">
@@ -245,8 +263,19 @@ export default function Home() {
                   className="px-5 py-2 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-lg hover:from-red-600 hover:to-red-700 shadow-md transition-all duration-200 flex items-center font-medium"
                   disabled={loading}
                 >
-                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path>
+                  <svg
+                    className="w-4 h-4 mr-2"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                    xmlns="http://www.w3.org/2000/svg"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+                    ></path>
                   </svg>
                   Logout
                 </button>
@@ -256,8 +285,19 @@ export default function Home() {
                 onClick={login}
                 className="px-5 py-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg hover:from-blue-600 hover:to-blue-700 shadow-md transition-all duration-200 flex items-center font-medium"
               >
-                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                <svg
+                  className="w-4 h-4 mr-2"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    d="M13 10V3L4 14h7v7l9-11h-7z"
+                  ></path>
                 </svg>
                 Connect Wallet
               </button>
@@ -267,29 +307,52 @@ export default function Home() {
               disabled
               className="px-5 py-2 bg-gradient-to-r from-blue-300 to-blue-400 text-white rounded-lg shadow-md flex items-center font-medium cursor-not-allowed"
             >
-              <svg className="w-4 h-4 mr-2 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+              <svg
+                className="w-4 h-4 mr-2 animate-spin"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                ></path>
               </svg>
               Initializing...
             </button>
           )}
         </div>
-        
+
         {/* Main content - always rendered but with appropriate loading states */}
         {!authenticated && ready ? (
           <div className="text-center p-8 bg-white rounded-xl shadow-xl mb-6 mx-auto border border-gray-100">
             <div className="mb-6">
-              <svg className="w-16 h-16 mx-auto mb-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path>
+              <svg
+                className="w-16 h-16 mx-auto mb-4 text-blue-500"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"
+                ></path>
               </svg>
               <h2 className="text-2xl font-bold mb-2 text-gray-800">Get Started</h2>
               <div className="h-1 w-16 bg-blue-500 mx-auto mb-4 rounded-full"></div>
             </div>
-            
+
             <p className="mb-6 text-gray-600 leading-relaxed">
-              Connect your wallet to access gas-free transactions and explore the power of account abstraction.
+              Connect your wallet to access gas-free transactions and explore the power of account
+              abstraction.
             </p>
-            
+
             <p className="mt-4 text-xs text-gray-500">
               Powered by Privy and ERC-4337 Account Abstraction
             </p>
@@ -298,29 +361,52 @@ export default function Home() {
           <div className="text-center p-8 bg-white rounded-xl shadow-lg mb-6 max-w-md mx-auto">
             <div className="flex justify-center mb-4">
               <svg className="w-12 h-12 text-blue-500 animate-spin" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                <circle
+                  className="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  strokeWidth="4"
+                ></circle>
+                <path
+                  className="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                ></path>
               </svg>
             </div>
             <p className="text-lg font-medium text-gray-700">Loading Privy...</p>
-            <p className="text-sm text-gray-500 mt-2">Please wait while we initialize your wallet</p>
+            <p className="text-sm text-gray-500 mt-2">
+              Please wait while we initialize your wallet
+            </p>
           </div>
         ) : (
           <>
             {/* Background gradient - positioned behind content */}
             <div className="absolute inset-0 bg-gradient-to-r from-blue-400 to-indigo-500 shadow-lg transform -skew-y-6 sm:skew-y-0 sm:-rotate-6 sm:rounded-3xl"></div>
-            
+
             {/* Main content - positioned above background */}
             <div className="relative px-4 py-8 bg-white shadow-lg sm:rounded-3xl sm:p-10 z-10">
               <div className="mx-auto">
                 <div className="divide-y divide-gray-200">
                   <div className="py-6 text-base leading-6 space-y-4 text-gray-700 sm:text-lg sm:leading-7">
-                    <h1 className="text-3xl font-bold text-center">Privy + Account Abstraction Demo</h1>
-                    <p className="text-center">Demonstrating ERC-4337 Account Abstraction with Privy</p>
+                    <h1 className="text-3xl font-bold text-center">
+                      Privy + Account Abstraction Demo
+                    </h1>
+                    <p className="text-center">
+                      Demonstrating ERC-4337 Account Abstraction with Privy
+                    </p>
 
                     <div className="space-y-6">
                       {/* Wallet Status - always rendered with loading state if needed */}
-                      <div className={isWalletInitializing ? "opacity-75 pointer-events-none relative" : "relative"}>
+                      <div
+                        className={
+                          isWalletInitializing
+                            ? 'opacity-75 pointer-events-none relative'
+                            : 'relative'
+                        }
+                      >
                         <WalletStatus
                           embeddedWallet={embeddedWallet}
                           smartAccount={smartAccount}
@@ -336,7 +422,13 @@ export default function Home() {
                       </div>
 
                       {/* Contract Addresses - render skeleton if not loaded */}
-                      <div className={!isSmartAccountReady ? "opacity-75 pointer-events-none relative" : "relative"}>
+                      <div
+                        className={
+                          !isSmartAccountReady
+                            ? 'opacity-75 pointer-events-none relative'
+                            : 'relative'
+                        }
+                      >
                         {isSmartAccountReady ? (
                           <ContractAddresses
                             paymaster={contractAddresses.paymaster}
@@ -356,7 +448,10 @@ export default function Home() {
 
                       {/* Demo Selection Dropdown */}
                       <div className="mb-6">
-                        <label htmlFor="demo-select" className="block text-sm font-medium text-gray-700 mb-2">
+                        <label
+                          htmlFor="demo-select"
+                          className="block text-sm font-medium text-gray-700 mb-2"
+                        >
                           Select a Demo:
                         </label>
                         <div className="relative">
@@ -366,9 +461,9 @@ export default function Home() {
                             onChange={handleDemoChange}
                             className="block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md appearance-none"
                           >
-                            {demoOptions.map((option) => (
-                              <option 
-                                key={option.value} 
+                            {demoOptions.map(option => (
+                              <option
+                                key={option.value}
                                 value={option.value}
                                 disabled={option.disabled}
                               >
@@ -377,8 +472,18 @@ export default function Home() {
                             ))}
                           </select>
                           <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-700">
-                            <svg className="h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                              <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+                            <svg
+                              className="h-5 w-5"
+                              xmlns="http://www.w3.org/2000/svg"
+                              viewBox="0 0 20 20"
+                              fill="currentColor"
+                              aria-hidden="true"
+                            >
+                              <path
+                                fillRule="evenodd"
+                                d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
+                                clipRule="evenodd"
+                              />
                             </svg>
                           </div>
                         </div>

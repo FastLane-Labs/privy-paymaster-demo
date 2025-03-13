@@ -35,18 +35,19 @@ export default function TransactionForm({
   const [recipient, setRecipient] = useState('');
   const [amount, setAmount] = useState(defaultAmount);
   const [copied, setCopied] = useState(false);
-  
+
   // Check if the status indicates an error
   const isError =
     txStatus?.toLowerCase().includes('error') ||
     txStatus?.toLowerCase().includes('failed') ||
     txStatus?.toLowerCase().includes('invalid');
-    
+
   // Specifically check for user rejection
-  const isUserRejection = txStatus?.toLowerCase().includes('user rejected') || 
-                         txStatus?.toLowerCase().includes('user denied') ||
-                         txStatus?.toLowerCase().includes('user cancelled') ||
-                         txStatus?.toLowerCase().includes('rejected the request');
+  const isUserRejection =
+    txStatus?.toLowerCase().includes('user rejected') ||
+    txStatus?.toLowerCase().includes('user denied') ||
+    txStatus?.toLowerCase().includes('user cancelled') ||
+    txStatus?.toLowerCase().includes('rejected the request');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -63,24 +64,22 @@ export default function TransactionForm({
 
   // Extract error codes for highlighting - only match AA codes or error codes
   const errorCodeRegex = /(AA\d+|(?<!\w)[-]?\d+(?!\w))/g;
-  
+
   // Process the status text to prevent highlighting transaction hashes and make them clickable links
   // We'll extract transaction hash from the status message if not provided as a prop
   let extractedTxHash: string | null = null;
-  
+
   const highlightedErrorStatus = txStatus
-    ? txStatus.replace(
-        /Transaction hash: ([a-f0-9x]+)/gi, 
-        (match, hash) => {
+    ? txStatus
+        .replace(/Transaction hash: ([a-f0-9x]+)/gi, (match, hash) => {
           // Store the extracted hash for later use if not provided as prop
           if (!transactionHash) {
             extractedTxHash = hash;
           }
           // Don't include the link in the status if we'll show it separately
           return 'Transaction confirmed!';
-        }
-      )
-      .replace(errorCodeRegex, '<span class="font-mono bg-red-100 px-1 rounded">$1</span>')
+        })
+        .replace(errorCodeRegex, '<span class="font-mono bg-red-100 px-1 rounded">$1</span>')
     : '';
 
   // Use either the prop or extracted hash
@@ -89,16 +88,14 @@ export default function TransactionForm({
   return (
     <div className="border p-4 rounded-lg">
       <h2 className="text-xl font-semibold mb-2">{title}</h2>
-      {description && (
-        <p className="text-sm text-gray-600 mb-3">{description}</p>
-      )}
-      
+      {description && <p className="text-sm text-gray-600 mb-3">{description}</p>}
+
       {isFastlaneSponsored && (
         <div className="mb-4">
           <FastlaneSponsor size="sm" />
         </div>
       )}
-      
+
       <form onSubmit={handleSubmit} className="space-y-3">
         <div>
           <label className="block text-sm font-medium text-gray-700">Recipient Address</label>
@@ -150,18 +147,16 @@ export default function TransactionForm({
             {showUserOpHash && (
               <p>
                 <strong>UserOp Hash:</strong>{' '}
-                <span className="break-all font-mono text-gray-600">
-                  {txHash}
-                </span>
+                <span className="break-all font-mono text-gray-600">{txHash}</span>
               </p>
             )}
-            
+
             {/* Display Transaction Hash if available with links to both transaction and event log */}
             {finalTransactionHash && (
-              <div className={showUserOpHash ? "mt-2" : ""}>
+              <div className={showUserOpHash ? 'mt-2' : ''}>
                 <p>
                   <strong>Transaction Hash:</strong>{' '}
-                  <a 
+                  <a
                     href={`https://monad-testnet.socialscan.io/tx/${finalTransactionHash}`}
                     target="_blank"
                     rel="noopener noreferrer"
@@ -171,7 +166,7 @@ export default function TransactionForm({
                   </a>
                 </p>
                 <div className="mt-1 flex gap-2">
-                  <a 
+                  <a
                     href={`https://monad-testnet.socialscan.io/tx/${finalTransactionHash}`}
                     target="_blank"
                     rel="noopener noreferrer"
@@ -179,7 +174,7 @@ export default function TransactionForm({
                   >
                     View Transaction
                   </a>
-                  <a 
+                  <a
                     href={`https://monad-testnet.socialscan.io/tx/${finalTransactionHash}#eventlog`}
                     target="_blank"
                     rel="noopener noreferrer"
@@ -194,7 +189,9 @@ export default function TransactionForm({
         )}
 
         {txStatus && (
-          <div className={`mt-2 ${isUserRejection ? 'text-amber-600' : isError ? 'text-red-600' : ''}`}>
+          <div
+            className={`mt-2 ${isUserRejection ? 'text-amber-600' : isError ? 'text-red-600' : ''}`}
+          >
             <div className="flex items-center gap-2">
               <p>
                 <strong>Status:</strong>
